@@ -1,0 +1,67 @@
+# =========================================================
+# MPC (Model Predictive Control) Configuration
+#   loadMPCParameters() 에서 nested key 그대로 읽음
+# =========================================================
+
+# Control loop frequency [Hz]
+control_frequency: 20.0
+
+# MPC solver
+mpc:
+  horizon: 10
+  dt: 0.1
+  max_iterations: 25
+  wheelbase: 2.7
+
+# Cost weights
+cost:
+  path_error: 10.0
+  heading_error: 2.0
+  speed_error: 0.25
+  control: 2.0
+  control_rate: 20 
+  obstacle: 10.0
+  terminal: 5.0
+
+# Solver hyper-params
+solver:
+  lr_init: 0.05
+  lr_min: 0.0001
+  convergence_eps: 0.001
+  line_search_steps: 7
+
+# Constraints
+constraints:
+  steering:
+    max_angle: 0.6109   # ~35 deg [rad]
+    max_rate: 0.4       # [rad/s]
+  acceleration:
+    max_forward: 2.0    # [m/s^2]
+    max_reverse: -5.0   # [m/s^2]
+  velocity:
+    min: 0.0            # [m/s]
+    max: 30.0           # [m/s]
+  obstacle:
+    safety_margin: 0.5
+    costmap_threshold: 90.0   # 0..100
+
+# Reference / speed planning
+planning:
+  ref_window: 120            # waypoints in reference window
+  target_vel: 10.66667      # 60 km/h in m/s
+  curve_vel_sharp: 10.333    # 30 km/h
+  curve_vel_mid:   13.722    # 35 km/h
+  curve_vel_mild:  14.5     # 45 km/h
+  curve_th_sharp:  0.01
+  curve_th_mid:    0.004
+  curve_th_mild:   0.001
+
+# Longitudinal PID (m/s error → normalized [0,1] accel/brake)
+pid:
+  kp: 0.05
+  ki: 0.01
+  kd: 0.001
+
+# CSV file paths (workspace 기준 상대경로)
+waypoint_file: "/root/aim_ws/src/main/config/track_log_recorded_final.csv"
+ref_file:      "/root/aim_ws/src/main/config/ref.txt"
