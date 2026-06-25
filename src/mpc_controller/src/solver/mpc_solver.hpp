@@ -1,8 +1,7 @@
 #ifndef MPC_SOLVER_HPP
 #define MPC_SOLVER_HPP
 
-#include "../Global/Global.hpp"
-#include <vector>
+#include "../global/global.hpp"
 
 /**
  * @brief MPC 최적화 솔버

@@ -1,12 +1,7 @@
 #include "parameter_loader.hpp"
-#include "Global.hpp"
-#include "coord_utils.hpp"
+#include "global.hpp"
+#include "utils.hpp"
 
-#include <fstream>
-#include <sstream>
-#include <string>
-#include <vector>
-#include <cmath>
 
 // ========================================
 // ROS 파라미터 → mpc_params

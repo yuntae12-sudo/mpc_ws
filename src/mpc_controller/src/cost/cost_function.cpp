@@ -1,8 +1,6 @@
 #include "cost_function.hpp"
-#include "../Global/math_utils.hpp"
-#include <cmath>
-#include <algorithm>
-#include <limits>
+#include "../global/utils.hpp"
+
 
 // ========================================
 // 경로 추종 오차 (수직 거리 ≈ closest point 까지 거리)
@@ -25,7 +23,7 @@ double computeHeadingErrorCost(const MPCState& state, const ReferencePath& ref,
 {
     if (ref.empty()) return 0.0;
     if (ref_idx >= ref.size()) ref_idx = ref.size() - 1;
-    double e = math_utils::angleDiff(state.yaw, ref.yaw_ref[ref_idx]);
+    double e = angleDiff(state.yaw, ref.yaw_ref[ref_idx]);
     return weight * e * e;
 }
 

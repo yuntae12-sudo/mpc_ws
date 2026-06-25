@@ -1,8 +1,5 @@
-#include <ros/ros.h>
-#include <string>
-
-#include "Global/Global.hpp"
-#include "Global/parameter_loader.hpp"
+#include "global/global.hpp"
+#include "global/parameter_loader.hpp"
 #include "node/mpc_node.hpp"
 
 // ========================================

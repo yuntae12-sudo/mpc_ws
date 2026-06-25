@@ -1,7 +1,5 @@
 #include "vehicle_model.hpp"
-#include "../Global/math_utils.hpp"
-#include <cmath>
-#include <algorithm>
+#include "../global/utils.hpp"
 
 // ========================================
 // Kinematic Bicycle Model (rear axle reference)
@@ -31,13 +29,13 @@ MPCState updateVehicleState(
 
     // yaw (vx 가 너무 작을 때는 회전 거의 없음 - 분모 보호)
     if (std::fabs(vx) > 1e-3) {
-        next.yaw = math_utils::normalizeAngle(yaw + (vx / wheelbase) * std::tan(delta) * dt);
+        next.yaw = normalizeAngle(yaw + (vx / wheelbase) * std::tan(delta) * dt);
     } else {
         next.yaw = yaw;
     }
 
     // 종속도 (양/최대 클리핑)
-    next.vx = math_utils::clip(vx + a * dt, v_min, v_max);
+    next.vx = clip(vx + a * dt, v_min, v_max);
 
     return next;
 }

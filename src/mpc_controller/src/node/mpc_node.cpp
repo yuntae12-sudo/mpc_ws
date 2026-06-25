@@ -1,12 +1,5 @@
 #include "mpc_node.hpp"
-#include "../Global/coord_utils.hpp"
-#include "../Global/math_utils.hpp"
-
-#include <algorithm>
-#include <cmath>
-#include <limits>
-#include <mutex>
-#include <vector>
+#include "../global/utils.hpp"
 
 // ========================================
 // 솔버 warm-start 보존용 (이 파일에 한정)
@@ -103,7 +96,7 @@ void buildReferenceFromWaypoints()
 
     // 캐시된 인덱스 부근에서 우선 탐색, 너무 멀면 전체 탐색
     int n = static_cast<int>(waypoints.size());
-    int idx = math_utils::clip(closest_waypoint_idx, 0, n - 1);
+    int idx = clip(closest_waypoint_idx, 0, n - 1);
 
     auto sqDist = [&](int i)->double {
         double dx = waypoints[i].x - ego_snap.x;
@@ -187,7 +180,7 @@ void velocityPID(double v_target, double v_current,
 
     double e = v_target - v_current;
     integral += e * dt;
-    integral = math_utils::clip(integral, -10.0, 10.0);
+    integral = clip(integral, -10.0, 10.0);
     double d = (e - prev_error) / dt;
     prev_error = e;
 
@@ -211,9 +204,9 @@ void publishCtrlCmd(double steering_rad,
 {
     morai_msgs::CtrlCmd cmd;
     cmd.longlCmdType = 1;                              // accel/brake mode
-    cmd.steering     = steering_rad;                   // [rad]
-    cmd.accel        = math_utils::clip(accel_norm, 0.0, 1.0);
-    cmd.brake        = math_utils::clip(brake_norm, 0.0, 1.0);
+    cmd.front_steer     = steering_rad;                   // [rad]
+    cmd.accel        = clip(accel_norm, 0.0, 1.0);
+    cmd.brake        = clip(brake_norm, 0.0, 1.0);
     cmd_pub.publish(cmd);
 }
 
@@ -278,7 +271,7 @@ void controlLoop(const ros::TimerEvent&)
     velocityPID(v_target, ego_snap.vx, accel_norm, brake_norm);
 
     // 7) 발행 (steering 은 MPC 결과, accel/brake 는 PID 결과)
-    double steer = math_utils::clip(res.control.delta,
+    double steer = clip(res.control.delta,
                                      -mpc_params.steering_max,
                                       mpc_params.steering_max);
     publishCtrlCmd(steer, accel_norm, brake_norm);

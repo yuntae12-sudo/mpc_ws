@@ -1,7 +1,7 @@
 #ifndef MPC_PARAMETER_LOADER_HPP
 #define MPC_PARAMETER_LOADER_HPP
 
-#include <ros/ros.h>
+#include "global.hpp"
 
 // ros parameter server 에서 MPC 파라미터 로드 (mpc_params 채움)
 void loadMPCParameters(ros::NodeHandle& pnh);

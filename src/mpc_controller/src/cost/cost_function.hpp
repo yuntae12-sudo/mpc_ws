@@ -1,8 +1,8 @@
 #ifndef MPC_COST_FUNCTION_HPP
 #define MPC_COST_FUNCTION_HPP
 
-#include "../Global/Global.hpp"
-#include <vector>
+#include "../global/global.hpp"
+
 
 // 단일 스텝 비용 (참조 인덱스를 외부에서 결정하여 캐싱)
 double computePathErrorCost(const MPCState& state, const ReferencePath& ref,

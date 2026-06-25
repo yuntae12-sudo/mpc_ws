@@ -1,12 +1,23 @@
 #ifndef MPC_GLOBAL_HPP
 #define MPC_GLOBAL_HPP
 
-#include <ros/ros.h>
-#include <nav_msgs/OccupancyGrid.h>
 #include <vector>
 #include <string>
 #include <cmath>
 #include <mutex>
+#include <algorithm>
+#include <limits>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+
+#include <ros/ros.h>
+#include <nav_msgs/OccupancyGrid.h>
+#include <sensor_msgs/Imu.h>
+#include <std_msgs/Float32MultiArray.h>
+#include <morai_msgs/CtrlCmd.h>
+#include <morai_msgs/GPSMessage.h>
+#include <morai_msgs/EgoVehicleStatus.h>
 
 // ========================================
 // 기본 구조체

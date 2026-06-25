@@ -46,15 +46,15 @@ include_directories(
 # 단일 실행 파일로 빌드 (PlanningControl 스타일)
 # ========================================
 add_executable(mpc_node
-  main.cpp
-  Global/Global.cpp
-  Global/coord_utils.cpp
-  Global/parameter_loader.cpp
-  model/vehicle_model.cpp
-  cost/cost_function.cpp
-  constraints/constraints.cpp
-  solver/mpc_solver.cpp
-  node/mpc_node.cpp
+  src/main.cpp
+  src/global/global.cpp
+  src/global/utils.cpp
+  src/global/parameter_loader.cpp
+  src/model/vehicle_model.cpp
+  src/cost/cost_function.cpp
+  src/constraints/constraints.cpp
+  src/solver/mpc_solver.cpp
+  src/node/mpc_node.cpp
 )
 
 target_link_libraries(mpc_node
@@ -65,10 +65,6 @@ add_dependencies(mpc_node
   ${catkin_EXPORTED_TARGETS}
   morai_msgs_generate_messages_cpp
 )
-
-add_executable(gps_logger gps_logger.cpp)
-target_link_libraries(gps_logger ${catkin_LIBRARIES})
-add_dependencies(gps_logger ${catkin_EXPORTED_TARGETS})
 
 # ========================================
 # Install (선택)

@@ -1,11 +1,8 @@
 #include "mpc_solver.hpp"
-#include "../Global/math_utils.hpp"
+#include "../global/utils.hpp"
 #include "../model/vehicle_model.hpp"
 #include "../cost/cost_function.hpp"
 #include "../constraints/constraints.hpp"
-#include <cmath>
-#include <algorithm>
-#include <iostream>
 
 // ========================================
 // 헬퍼: control sequence 전체에 box constraint 투영

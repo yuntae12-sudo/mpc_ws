@@ -1,8 +1,7 @@
 #ifndef MPC_VEHICLE_MODEL_HPP
 #define MPC_VEHICLE_MODEL_HPP
 
-#include "../Global/Global.hpp"
-#include <vector>
+#include "../global/global.hpp"
 
 // 자전거 모델 한 스텝 적분 (Runge-Kutta 미적용, Euler)
 MPCState updateVehicleState(

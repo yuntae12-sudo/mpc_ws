@@ -1,15 +1,7 @@
 #ifndef MPC_NODE_HPP
 #define MPC_NODE_HPP
 
-#include <ros/ros.h>
-#include <nav_msgs/OccupancyGrid.h>
-#include <sensor_msgs/Imu.h>
-#include <std_msgs/Float32MultiArray.h>
-#include <morai_msgs/CtrlCmd.h>
-#include <morai_msgs/GPSMessage.h>
-#include <morai_msgs/EgoVehicleStatus.h>
-
-#include "../Global/Global.hpp"
+#include "../global/global.hpp"
 #include "../solver/mpc_solver.hpp"
 
 // ========================================
