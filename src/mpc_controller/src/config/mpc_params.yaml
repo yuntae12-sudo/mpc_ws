@@ -15,11 +15,11 @@ mpc:
 
 # Cost weights
 cost:
-  path_error: 10.0
-  heading_error: 2.0
+  path_error: 4.0
+  heading_error: 6.0
   speed_error: 0.25
   control: 2.0
-  control_rate: 20 
+  control_rate: 30.0
   obstacle: 10.0
   terminal: 5.0
 
@@ -47,21 +47,21 @@ constraints:
 
 # Reference / speed planning
 planning:
-  ref_window: 120            # waypoints in reference window
-  target_vel: 10.66667      # 60 km/h in m/s
-  curve_vel_sharp: 10.333    # 30 km/h
-  curve_vel_mid:   13.722    # 35 km/h
-  curve_vel_mild:  14.5     # 45 km/h
-  curve_th_sharp:  0.01
-  curve_th_mid:    0.004
-  curve_th_mild:   0.001
+  ref_window: 700            # waypoints in reference window
+  target_vel: 10.0     # 60 km/h in m/s(10.66667)
+  curve_vel_sharp: 4.0    # 30 km/h(10.333)
+  curve_vel_mid:   6.0    # 35 km/h(13.722)
+  curve_vel_mild:  8.0     # 45 km/h(14.5)
+  curve_th_sharp:  0.080
+  curve_th_mid:    0.035
+  curve_th_mild:   0.015
 
 # Longitudinal PID (m/s error → normalized [0,1] accel/brake)
 pid:
-  kp: 0.05
-  ki: 0.01
+  kp: 0.1
+  ki: 0.003
   kd: 0.001
 
 # CSV file paths (workspace 기준 상대경로)
-waypoint_file: "/root/aim_ws/src/main/config/track_log_recorded_final.csv"
-ref_file:      "/root/aim_ws/src/main/config/ref.txt"
+waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path.txt"
+ref_file:      "/home/autonav/mpc_ws/src/mpc_controller/src/config/ref.txt"

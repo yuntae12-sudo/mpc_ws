@@ -80,10 +80,11 @@ void computeWaypointCurvatures()
     if (waypoints.size() < 3) return;
 
     auto curvAt = [&](size_t i)->double {
-        if (i == 0 || i + 1 >= waypoints.size()) return 0.0;
-        const auto& p0 = waypoints[i-1];
+        const size_t gap = 25;
+        if (i < gap || i + gap >= waypoints.size()) return 0.0;
+        const auto& p0 = waypoints[i-gap];
         const auto& p1 = waypoints[i];
-        const auto& p2 = waypoints[i+1];
+        const auto& p2 = waypoints[i+gap];
         double a = std::hypot(p1.x-p0.x, p1.y-p0.y);
         double b = std::hypot(p2.x-p1.x, p2.y-p1.y);
         double c = std::hypot(p2.x-p0.x, p2.y-p0.y);

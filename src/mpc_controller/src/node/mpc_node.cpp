@@ -159,6 +159,26 @@ void buildReferenceFromWaypoints()
         reference_path.yaw_ref.push_back(yaw_ref);
         reference_path.v_ref.push_back(velocityFromCurvature(waypoints[i].curvature));
     }
+    // v_ref smoothing: 계단식 속도 변화를 완화
+    if (reference_path.v_ref.size() >= 3) {
+        std::vector<double> smoothed = reference_path.v_ref;
+
+        int smooth_radius = 30;  // waypoint 간격 0.1m면 앞뒤 약 0.5m
+        for (size_t i = 0; i < reference_path.v_ref.size(); ++i) {
+            size_t start = (i > static_cast<size_t>(smooth_radius)) ? i - smooth_radius : 0;
+            size_t end = std::min(reference_path.v_ref.size() - 1, i + static_cast<size_t>(smooth_radius));
+
+            double sum = 0.0;
+            int count = 0;
+            for (size_t j = start; j <= end; ++j) {
+                sum += reference_path.v_ref[j];
+                ++count;
+            }
+            smoothed[i] = sum / count;
+        }
+
+        reference_path.v_ref = smoothed;
+    }
     new_reference_path_received = true;
 }
 
@@ -204,7 +224,7 @@ void publishCtrlCmd(double steering_rad,
 {
     morai_msgs::CtrlCmd cmd;
     cmd.longlCmdType = 1;                              // accel/brake mode
-    cmd.front_steer     = steering_rad;                   // [rad]
+    cmd.front_steer     = -steering_rad;                   // [rad] 부호 반전
     cmd.accel        = clip(accel_norm, 0.0, 1.0);
     cmd.brake        = clip(brake_norm, 0.0, 1.0);
     cmd_pub.publish(cmd);
@@ -263,10 +283,52 @@ void controlLoop(const ros::TimerEvent&)
             res.success, res.controls.size(), mpc_params.horizon);
 }
 
-    // 6) 종방향: MPC 가 본 reference 의 첫 번째 v_ref 를 target 으로 사용
-    double v_target = reference_path.v_ref.empty()
-                          ? mpc_params.target_vel
-                          : reference_path.v_ref.front();
+    // 6) 종방향: PID 가 preview 기반 target 을 추종
+    double v_target = mpc_params.target_vel;
+    double debug_min_v = v_target;
+    double debug_dist_to_min_v = 0.0;
+    double debug_v_allowed = v_target;
+
+    if (!reference_path.v_ref.empty()) {
+        // 기본은 현재 위치의 reference 속도
+        v_target = reference_path.v_ref.front();
+
+        // 앞쪽 preview 거리 설정
+        const double preview_distance = 70.0;  // [m], 도심 90도 코너면 15~25m 후보
+        const double comfortable_decel = 0.7;  // [m/s^2]
+
+        double accum_dist = 0.0;
+        double min_v = reference_path.v_ref.front();
+        double dist_to_min_v = 0.0;
+
+        for (size_t i = 1; i < reference_path.v_ref.size(); ++i) {
+            double dx = reference_path.x_ref[i] - reference_path.x_ref[i - 1];
+            double dy = reference_path.y_ref[i] - reference_path.y_ref[i - 1];
+            accum_dist += std::hypot(dx, dy);
+
+            if (accum_dist > preview_distance) {
+                break;
+            }
+
+            if (reference_path.v_ref[i] < min_v) {
+                min_v = reference_path.v_ref[i];
+                dist_to_min_v = accum_dist;
+            }
+        }
+
+        // 코너 속도 min_v까지 남은 거리 dist_to_min_v를 고려한 허용 현재속도
+        double v_allowed = std::sqrt(min_v * min_v + 2.0 * comfortable_decel * dist_to_min_v);
+
+        // 너무 높은 목표를 막고, 코너 접근 시 자연스럽게 낮춤
+        v_target = std::min(v_target, v_allowed);
+        v_target = std::min(v_target, mpc_params.target_vel);
+
+        // 안전 하한. 너무 저속 고정 방지용, 필요 없으면 생략 가능
+        v_target = std::max(v_target, 2.0);
+        debug_min_v = min_v;
+        debug_dist_to_min_v = dist_to_min_v;
+        debug_v_allowed = v_allowed;
+    }
     double accel_norm, brake_norm;
     velocityPID(v_target, ego_snap.vx, accel_norm, brake_norm);
 
@@ -277,7 +339,8 @@ void controlLoop(const ros::TimerEvent&)
     publishCtrlCmd(steer, accel_norm, brake_norm);
 
     ROS_INFO_THROTTLE(1.0,
-        "[MPC] pos=(%.2f,%.2f) yaw=%.2f vx=%.2f | tgt=%.2f m/s | steer=%.3f rad | accel=%.2f brake=%.2f | cost=%.2f",
+        "[MPC] pos=(%.2f,%.2f) yaw=%.2f vx=%.2f | tgt=%.2f min_v=%.2f dist=%.1f allow=%.2f | steer=%.3f rad | accel=%.2f brake=%.2f | cost=%.2f",
         ego_snap.x, ego_snap.y, ego_snap.yaw, ego_snap.vx,
-        v_target, steer, accel_norm, brake_norm, res.cost);
+        v_target, debug_min_v, debug_dist_to_min_v, debug_v_allowed,
+        steer, accel_norm, brake_norm, res.cost);
 }
