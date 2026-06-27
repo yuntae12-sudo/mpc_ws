@@ -213,11 +213,16 @@ MPCResult solveMPC(
                 U_new[k].accel = U[k].accel - alpha * w * grad[k].accel;
             }
             projectControls(U_new, prev_control, params);
-            // line search cost도 선형 모델로 평가
-            cost_new = evalCost(x0, U_new, ref, costmap, prev_control, params, &models);
+
+            // U_new 기준으로 선형화 모델 갱신 후 cost 평가
+            // U_old 기준 models로 U_new cost 평가 시 선형화 오차 누적 방지
+            std::vector<LinearizedModel> models_new = buildLTVModels(
+                x0, U_new, params.dt, params.wheelbase, params.vel_min, params.vel_max);
+            cost_new = evalCost(x0, U_new, ref, costmap, prev_control, params, &models_new);
 
             if (cost_new < cost_cur - 1e-4 * alpha * grad_norm2) {
                 accepted = true;
+                models = std::move(models_new);  // accept된 models 반영
                 break;
             }
             alpha *= 0.5;
@@ -226,10 +231,7 @@ MPCResult solveMPC(
         if (accepted) {
             U = std::move(U_new);
             lr = std::min(params.lr_init, alpha * 1.5);
-
-            // U가 바뀌었으니 선형화 모델도 갱신
-            models = buildLTVModels(
-                x0, U, params.dt, params.wheelbase, params.vel_min, params.vel_max);
+            // models는 line search에서 이미 U_new 기준으로 갱신 완료
 
             if (cost_cur - cost_new < params.convergence_eps) {
                 cost_cur = cost_new;

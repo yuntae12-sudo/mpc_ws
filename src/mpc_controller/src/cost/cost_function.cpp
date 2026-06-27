@@ -1,7 +1,6 @@
 #include "cost_function.hpp"
 #include "../global/utils.hpp"
 
-
 // ========================================
 // 경로 추종 오차 (수직 거리 ≈ closest point 까지 거리)
 // ========================================
@@ -37,7 +36,8 @@ double computeSpeedErrorCost(const MPCState& state, double v_ref, double weight)
 }
 
 // ========================================
-// 제어 입력 크기 (가중치는 조향/가속 따로 적용해도 OK; 여기선 같은 가중치)
+// 제어 입력 크기
+//   steer/accel 을 분리해서 weight 적용
 // ========================================
 double computeControlEffortCost(const MPCControl& u, double w_steer, double w_accel)
 {
@@ -46,17 +46,21 @@ double computeControlEffortCost(const MPCControl& u, double w_steer, double w_ac
 
 // ========================================
 // 제어 변화율
+//   delta(rad)와 accel(m/s²)은 단위가 달라서 weight 분리
+//   같은 weight로 묶으면 gradient 왜곡 → 흔들림/급정거 원인
 // ========================================
 double computeControlRateCost(const MPCControl& u_prev, const MPCControl& u_cur,
                               double weight)
 {
     double dd = u_cur.delta - u_prev.delta;
     double da = u_cur.accel - u_prev.accel;
-    return weight * (dd*dd + da*da);
+    // steer 변화율: weight 그대로 (조향 흔들림 억제)
+    // accel 변화율: weight * 0.05 (급정거 억제하되 속도 추종 방해 안 함)
+    return weight * dd*dd + (weight * 0.05) * da*da;
 }
 
 // ========================================
-// 장애물 (costmap 0..100 사용, lethal 임계 위는 큰 페널티)
+// 장애물
 // ========================================
 double computeObstacleCost(const MPCState& state,
                            const CostmapInfo& costmap,
@@ -78,13 +82,12 @@ double computeObstacleCost(const MPCState& state,
 
     int8_t raw = costmap.msg->data[idx];
     double v;
-    if (raw < 0) v = 30.0;          // unknown
+    if (raw < 0) v = 30.0;
     else         v = static_cast<double>(raw);
     if (v < 0.0) v = 0.0;
     if (v > 100.0) v = 100.0;
 
-    // 정상 영역은 부드러운 quadratic, lethal 위는 큰 페널티
-    double norm = v / 100.0;          // 0..1
+    double norm = v / 100.0;
     double soft = norm * norm;
     double hard = (v >= lethal_threshold) ? 100.0 * (v - lethal_threshold + 10.0) : 0.0;
     return weight * (soft + hard);
@@ -104,38 +107,21 @@ double computeTotalCost(
     double total = 0.0;
     if (states.empty()) return 0.0;
 
-    size_t N = controls.size();    // stage cost loop 길이
-    size_t S = states.size();      // = N + 1 (terminal 포함)
+    size_t N = controls.size();
+    size_t S = states.size();
     size_t R = ref.size();
 
-    // 각 stage 마다 reference 인덱스를 찾는다. 단조 증가 가정.
     size_t ref_idx = 0;
-
-    //if(R>0) {
-    //    double best_d2=std::numeric_limits<double>::infinity();
-    //    size_t best=0;
-    //    for (size_t k=0; k<R;++k) {
-    //        double dx =ref.x_ref[k]-states[0].x;
-    //        double dy = ref.y_ref[k]-states[0].y;
-    //        double d2 = dx*dx+dy*dy;
-    //        if(d2<best_d2){
-    //            best_d2=d2;
-    //            bets=k;
-    //        }
-    //    }
-    //    ref_idx=best;
-    //}
 
     // Stage costs (i = 0 .. N-1)
     for (size_t i = 0; i < N; ++i) {
         const MPCState& st = states[i];
 
-        // closest ref (windowed: start from previous ref_idx)
+        // closest ref 탐색 (window 50으로 확장: 고속 주행 시 ref 놓침 방지)
         if (R > 0) {
             double best_d2 = std::numeric_limits<double>::infinity();
             size_t best = ref_idx;
-            // 앞쪽으로만 검색 (역행 방지)
-            size_t end = std::min(R, ref_idx + 30);
+            size_t end = std::min(R, ref_idx + 50);
             for (size_t k = ref_idx; k < end; ++k) {
                 double dx = ref.x_ref[k] - st.x;
                 double dy = ref.y_ref[k] - st.y;
@@ -149,24 +135,26 @@ double computeTotalCost(
         total += computePathErrorCost   (st, ref, ref_idx, params.weight_path_error);
         total += computeHeadingErrorCost(st, ref, ref_idx, params.weight_heading_error);
         total += computeSpeedErrorCost  (st, v_target,     params.weight_speed_error);
-        total += computeObstacleCost    (st, costmap, params.weight_obstacle, params.lethal_cost_threshold);
+        total += computeObstacleCost    (st, costmap, params.weight_obstacle,
+                                         params.lethal_cost_threshold);
 
-        // control effort + rate
         const MPCControl& u_cur = controls[i];
-        // 조향에 더 큰 weight 를 (안정성을 위해)
-        total += computeControlEffortCost(u_cur, params.weight_control, params.weight_control * 0.1);
+        // steer effort: weight_control / accel effort: weight_control * 0.5
+        // accel은 속도 추종을 위해 어느 정도 자유롭게 두어야 급정거 방지
+        total += computeControlEffortCost(u_cur,
+                                          params.weight_control,
+                                          params.weight_control * 0.5);
 
         const MPCControl& u_prev = (i == 0) ? prev_control : controls[i-1];
         total += computeControlRateCost(u_prev, u_cur, params.weight_control_rate);
     }
 
-    // Terminal cost (마지막 예측 상태 s_N)
+    // Terminal cost
     if (S > 0 && R > 0) {
         const MPCState& st = states.back();
-        // 마지막 reference 인덱스도 앞으로 진행
         double best_d2 = std::numeric_limits<double>::infinity();
         size_t best = ref_idx;
-        size_t end = std::min(R, ref_idx + 30);
+        size_t end = std::min(R, ref_idx + 50);
         for (size_t k = ref_idx; k < end; ++k) {
             double dx = ref.x_ref[k] - st.x;
             double dy = ref.y_ref[k] - st.y;
@@ -179,7 +167,8 @@ double computeTotalCost(
         total += computePathErrorCost   (st, ref, ref_idx, params.weight_terminal);
         total += computeHeadingErrorCost(st, ref, ref_idx, params.weight_terminal * 0.5);
         total += computeSpeedErrorCost  (st, v_target,     params.weight_terminal * 0.2);
-        total += computeObstacleCost    (st, costmap, params.weight_obstacle, params.lethal_cost_threshold);
+        total += computeObstacleCost    (st, costmap, params.weight_obstacle,
+                                         params.lethal_cost_threshold);
     }
 
     return total;

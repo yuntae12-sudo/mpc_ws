@@ -1,61 +1,53 @@
 # =========================================================
-# MPC (Model Predictive Control) Configuration
-#   loadMPCParameters() 에서 nested key 그대로 읽음
+# MPC Configuration
 # =========================================================
 
-# Control loop frequency [Hz]
 control_frequency: 20.0
 
-# MPC solver
 mpc:
-  horizon: 10
+  horizon: 15
   dt: 0.1
   max_iterations: 25
-  wheelbase: 2.7
+  wheelbase: 2.8
 
-# Cost weights
 cost:
   path_error: 4.0
-  heading_error: 6.0
-  speed_error: 3.0
-  control: 2.0
-  control_rate: 15.0
+  heading_error: 5.0      # 6.0→3.0: 과도한 heading 보정이 오버슈트 유발
+  speed_error: 2.0        # 3.0→2.0: 급정거 방지
+  control: 1.0            # 2.0→1.0: steer effort 페널티 완화
+  control_rate: 10.0      # 조향 변화율 억제 (accel은 cost_function 내부에서 *0.05)
   obstacle: 10.0
-  terminal: 5.0
+  terminal: 8.0
 
-# Solver hyper-params
 solver:
   lr_init: 0.05
   lr_min: 0.0001
   convergence_eps: 0.001
   line_search_steps: 7
 
-# Constraints
 constraints:
   steering:
-    max_angle: 0.6109   # ~35 deg [rad]
-    max_rate: 0.4       # [rad/s]
+    max_angle: 0.6109     # ~35 deg [rad]
+    max_rate: 1.0         # 0.4→1.0: 너무 작으면 solver 출력이 매 사이클 잘려서 흔들림
   acceleration:
-    max_forward: 2.0    # [m/s^2]
-    max_reverse: -5.0   # [m/s^2]
+    max_forward: 2.0
+    max_reverse: -5.0
   velocity:
-    min: 0.0            # [m/s]
-    max: 30.0           # [m/s]
+    min: 0.0
+    max: 30.0
   obstacle:
     safety_margin: 0.5
-    costmap_threshold: 90.0   # 0..100
+    costmap_threshold: 90.0
 
-# Reference / speed planning
 planning:
-  ref_window: 700            # waypoints in reference window
-  target_vel: 10.0     # 60 km/h in m/s(10.66667)
-  curve_vel_sharp: 4.0    # 30 km/h(10.333)
-  curve_vel_mid:   6.0    # 35 km/h(13.722)
-  curve_vel_mild:  8.0     # 45 km/h(14.5)
+  ref_window: 700
+  target_vel: 10.0
+  curve_vel_sharp: 3.0
+  curve_vel_mid:   5.0
+  curve_vel_mild:  7.0
   curve_th_sharp:  0.080
   curve_th_mid:    0.035
   curve_th_mild:   0.015
 
-# CSV file paths (workspace 기준 상대경로)
 waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path.txt"
 ref_file:      "/home/autonav/mpc_ws/src/mpc_controller/src/config/ref.txt"
