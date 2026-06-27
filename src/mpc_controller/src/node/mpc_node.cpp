@@ -183,39 +183,6 @@ void buildReferenceFromWaypoints()
 }
 
 // ========================================
-// 종방향 PID
-//   target_vel - current_vel  →  normalized [0..1] accel/brake
-// ========================================
-void velocityPID(double v_target, double v_current,
-                 double& out_accel_norm, double& out_brake_norm)
-{
-    static double prev_error = 0.0;
-    static double integral   = 0.0;
-    static ros::Time last_t  = ros::Time::now();
-
-    ros::Time now = ros::Time::now();
-    double dt = (now - last_t).toSec();
-    last_t = now;
-    if (dt <= 0.0 || dt > 1.0) dt = 1.0 / std::max(1.0, mpc_params.control_frequency);
-
-    double e = v_target - v_current;
-    integral += e * dt;
-    integral = clip(integral, -10.0, 10.0);
-    double d = (e - prev_error) / dt;
-    prev_error = e;
-
-    double u = mpc_params.pid_kp * e + mpc_params.pid_ki * integral + mpc_params.pid_kd * d;
-
-    if (u >= 0.0) {
-        out_accel_norm = std::min(u, 1.0);
-        out_brake_norm = 0.0;
-    } else {
-        out_accel_norm = 0.0;
-        out_brake_norm = std::min(-u, 1.0);
-    }
-}
-
-// ========================================
 // CtrlCmd 발행 (MORAI accel/brake 모드 = longlCmdType 1)
 // ========================================
 void publishCtrlCmd(double steering_rad,
@@ -273,8 +240,6 @@ void controlLoop(const ros::TimerEvent&)
     }
 
     // 5) warm-start 갱신
-    //g_warm_start = res.controls;
-    //last_control = res.control;
     if (res.success && res.controls.size() == static_cast<size_t>(mpc_params.horizon)) {
     g_warm_start = res.controls;
     last_control = res.control;
@@ -283,64 +248,26 @@ void controlLoop(const ros::TimerEvent&)
             res.success, res.controls.size(), mpc_params.horizon);
 }
 
-    // 6) 종방향: PID 가 preview 기반 target 을 추종
-    double v_target = mpc_params.target_vel;
-    double debug_min_v = v_target;
-    double debug_dist_to_min_v = 0.0;
-    double debug_v_allowed = v_target;
-
-    if (!reference_path.v_ref.empty()) {
-        // 기본은 현재 위치의 reference 속도
-        v_target = reference_path.v_ref.front();
-
-        // 앞쪽 preview 거리 설정
-        const double preview_distance = 70.0;  // [m], 도심 90도 코너면 15~25m 후보
-        const double comfortable_decel = 0.7;  // [m/s^2]
-
-        double accum_dist = 0.0;
-        double min_v = reference_path.v_ref.front();
-        double dist_to_min_v = 0.0;
-
-        for (size_t i = 1; i < reference_path.v_ref.size(); ++i) {
-            double dx = reference_path.x_ref[i] - reference_path.x_ref[i - 1];
-            double dy = reference_path.y_ref[i] - reference_path.y_ref[i - 1];
-            accum_dist += std::hypot(dx, dy);
-
-            if (accum_dist > preview_distance) {
-                break;
-            }
-
-            if (reference_path.v_ref[i] < min_v) {
-                min_v = reference_path.v_ref[i];
-                dist_to_min_v = accum_dist;
-            }
-        }
-
-        // 코너 속도 min_v까지 남은 거리 dist_to_min_v를 고려한 허용 현재속도
-        double v_allowed = std::sqrt(min_v * min_v + 2.0 * comfortable_decel * dist_to_min_v);
-
-        // 너무 높은 목표를 막고, 코너 접근 시 자연스럽게 낮춤
-        v_target = std::min(v_target, v_allowed);
-        v_target = std::min(v_target, mpc_params.target_vel);
-
-        // 안전 하한. 너무 저속 고정 방지용, 필요 없으면 생략 가능
-        v_target = std::max(v_target, 2.0);
-        debug_min_v = min_v;
-        debug_dist_to_min_v = dist_to_min_v;
-        debug_v_allowed = v_allowed;
-    }
-    double accel_norm, brake_norm;
-    velocityPID(v_target, ego_snap.vx, accel_norm, brake_norm);
-
-    // 7) 발행 (steering 은 MPC 결과, accel/brake 는 PID 결과)
     double steer = clip(res.control.delta,
-                                     -mpc_params.steering_max,
-                                      mpc_params.steering_max);
+                    -mpc_params.steering_max,
+                     mpc_params.steering_max);
+
+    // MPC accel 출력을 MORAI accel/brake 포맷으로 변환
+    // res.control.accel 단위: [m/s^2],  MORAI 입력: normalized [0, 1]
+    double accel_raw = res.control.accel;
+    double accel_norm = 0.0, brake_norm = 0.0;
+    if (accel_raw >= 0.0) {
+        // 최대 가속도(2.0 m/s^2) 기준으로 normalize
+        accel_norm = clip(accel_raw / mpc_params.accel_max, 0.0, 1.0);
+    } else {
+        // 최대 감속도(5.0 m/s^2) 기준으로 normalize
+        brake_norm = clip(-accel_raw / std::fabs(mpc_params.accel_min), 0.0, 1.0);
+    }
     publishCtrlCmd(steer, accel_norm, brake_norm);
 
     ROS_INFO_THROTTLE(1.0,
-        "[MPC] pos=(%.2f,%.2f) yaw=%.2f vx=%.2f | tgt=%.2f min_v=%.2f dist=%.1f allow=%.2f | steer=%.3f rad | accel=%.2f brake=%.2f | cost=%.2f",
-        ego_snap.x, ego_snap.y, ego_snap.yaw, ego_snap.vx,
-        v_target, debug_min_v, debug_dist_to_min_v, debug_v_allowed,
-        steer, accel_norm, brake_norm, res.cost);
+    "[MPC] pos=(%.2f,%.2f) yaw=%.2f vx=%.2f | "
+    "steer=%.3f rad | accel_raw=%.3f m/s2 | accel=%.2f brake=%.2f | cost=%.2f",
+    ego_snap.x, ego_snap.y, ego_snap.yaw, ego_snap.vx,
+    steer, accel_raw, accel_norm, brake_norm, res.cost);
 }

@@ -24,12 +24,6 @@ void controlLoop(const ros::TimerEvent&);
 void buildReferenceFromWaypoints();
 
 // ========================================
-// 종방향 PID  (m/s 오차 -> normalized accel/brake [0,1])
-// ========================================
-void velocityPID(double v_target, double v_current,
-                 double& out_accel_norm, double& out_brake_norm);
-
-// ========================================
 // CtrlCmd 발행
 // ========================================
 void publishCtrlCmd(double steering_rad,

@@ -17,9 +17,9 @@ mpc:
 cost:
   path_error: 4.0
   heading_error: 6.0
-  speed_error: 0.25
+  speed_error: 3.0
   control: 2.0
-  control_rate: 30.0
+  control_rate: 15.0
   obstacle: 10.0
   terminal: 5.0
 
@@ -55,12 +55,6 @@ planning:
   curve_th_sharp:  0.080
   curve_th_mid:    0.035
   curve_th_mild:   0.015
-
-# Longitudinal PID (m/s error → normalized [0,1] accel/brake)
-pid:
-  kp: 0.1
-  ki: 0.003
-  kd: 0.001
 
 # CSV file paths (workspace 기준 상대경로)
 waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path.txt"
