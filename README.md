@@ -27,3 +27,45 @@ roslaunch mpc_node mpc_node.launch
 2. 현재 ROS토픽으로 진행중 이를 UDP로 변환
 3. planning 개발
 +파라미터 조금씩 하면서 수정 필요
+
+
+## 6/27일 개발 내용
+6/27
+
+1. 기존 종방향 PID 제어기 제거 → Only MPC로 주행
+
+
+기존에 accel/brake를 PID로 따로 제어하던 것을 MPC 단일 출력으로 통합
+steer / throttle / brake 모두 MPC 한 곳에서 출력
+
+
+2. vehicle_model kinematic bicycle model 1차 Taylor 선형화
+
+
+기존: 비선형 모델 그대로 사용 → solver가 gradient 계산할 때마다 predictTrajectory() 호출 (4N × iter번)
+gradient descent가 non-convex cost landscape에서 동작 → 급조향/급가속 시 gradient 폭발 또는 local minimum 수렴 위험
+
+
+변경: 현재 동작점 (x̄, ū)에서 1차 Taylor 선형화 → A_k, B_k, c_k 행렬 계산
+  x_{k+1} ≈ A_k * x_k + B_k * u_k + c_k
+
+이후 gradient / line search에서 비선형 forward sim 대신 행렬 곱만으로 trajectory 예측
+연산 부담 감소 + convex 문제로 안정적 수렴
+추가된 함수:
+
+linearizeBicycle(): 동작점 하나에서 A, B, c 계산
+buildLTVModels(): horizon N 스텝 전체 선형화 모델 계산
+
+
+3. Planner / Controller 분리
+
+
+기존: mpc_node.cpp 안에 Planner(경로 생성)와 Controller(MPC 최적화)가 섞여있던 구조
+변경:
+planner/path_planner.cpp: ReferencePath 생성 담당 (Planner 역할)
+controller/mpc_node.cpp: ReferencePath를 받아 solveMPC() 호출만 (Controller 역할)
+
+분리 이유:
+MPC solver는 ReferencePath를 입력으로 받아야 동작하므로 Planner가 필요함
+하지만 Planner 로직을 mpc_node에서 분리해두면 나중에 Expert/PA/SA Planner로 교체할 때 path_planner.cpp만 바꾸면 됨
+추후 Expert Planner, PA, SA 모두 같은 MPC Controller 재사용 가능
