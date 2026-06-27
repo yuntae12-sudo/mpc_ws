@@ -37,7 +37,7 @@ int main(int argc, char** argv)
     ROS_INFO("[MPC] Subscribed: /gps /imu /Ego_topic /costmap /lane/path");
 
     // 발행자
-    cmd_pub = nh.advertise<morai_msgs::CtrlCmd>("/ctrl_cmd_0", 1);
+    cmd_pub = nh.advertise<morai_msgs::CtrlCmd>("/ctrl_cmd", 1);
 
     // 제어 타이머
     double freq = mpc_params.control_frequency;
