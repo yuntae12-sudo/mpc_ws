@@ -55,6 +55,7 @@ add_executable(mpc_node
   src/constraints/constraints.cpp
   src/solver/mpc_solver.cpp
   src/node/mpc_node.cpp
+  src/planner/path_planner.cpp
 )
 
 target_link_libraries(mpc_node

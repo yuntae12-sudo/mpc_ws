@@ -3,6 +3,7 @@
 
 #include "../global/global.hpp"
 #include "../solver/mpc_solver.hpp"
+#include "../planner/path_planner.hpp"   // Planner 분리
 
 // ========================================
 // ROS 콜백
@@ -11,17 +12,12 @@ void CBGps     (const morai_msgs::GPSMessage::ConstPtr& msg);
 void CBImu     (const sensor_msgs::Imu::ConstPtr& msg);
 void CBEgoState(const morai_msgs::EgoVehicleStatus::ConstPtr& msg);
 void CBCostmap (const nav_msgs::OccupancyGrid::ConstPtr& msg);
-void CBLanePath(const std_msgs::Float32MultiArray::ConstPtr& msg);  // 선택적 사용
+void CBLanePath(const std_msgs::Float32MultiArray::ConstPtr& msg);
 
 // ========================================
-// 제어 루프
+// 제어 루프 (Controller 역할만)
 // ========================================
 void controlLoop(const ros::TimerEvent&);
-
-// ========================================
-// Reference path 빌더 (현재 ego 주변 window)
-// ========================================
-void buildReferenceFromWaypoints();
 
 // ========================================
 // CtrlCmd 발행
