@@ -5,10 +5,10 @@
 control_frequency: 20.0
 
 mpc:
-  horizon: 10
+  horizon: 15
   dt: 0.1
   max_iterations: 25
-  wheelbase: 2.8
+  wheelbase: 2.7
 
 cost:
   path_error: 4.0
@@ -27,14 +27,14 @@ solver:
 
 constraints:
   steering:
-    max_angle: 0.6109     # ~35 deg [rad]
+    max_angle: 0.6981     # ~40 deg [rad]
     max_rate: 1.0         # 0.4→1.0: 너무 작으면 solver 출력이 매 사이클 잘려서 흔들림
   acceleration:
     max_forward: 2.0
     max_reverse: -5.0
   velocity:
     min: 0.0
-    max: 30.0
+    max: 40.0
   obstacle:
     safety_margin: 0.5
     costmap_threshold: 90.0
@@ -42,8 +42,8 @@ constraints:
 planning:
   ref_window: 700
   target_vel: 10.0
-  curve_vel_sharp: 4.0
-  curve_vel_mid:   6.0
+  curve_vel_sharp: 3.0
+  curve_vel_mid:   5.0
   curve_vel_mild:  7.0
   curve_th_sharp:  0.080
   curve_th_mid:    0.035

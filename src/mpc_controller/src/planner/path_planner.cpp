@@ -93,7 +93,7 @@ bool buildReferenceFromWaypoints(
     //   가장 낮은 v_ref를 현재 v_ref에 반영
     //   → 커브 진입 전에 미리 감속
     // ========================================
-    const int look_ahead_count = 30;  // 약 3m 앞 (waypoint 간격 0.1m 기준)
+    const int look_ahead_count = 20;  // 약 3m 앞 (waypoint 간격 0.1m 기준)
     int sz = static_cast<int>(out_ref.v_ref.size());
     for (int i = 0; i < sz; ++i) {
         int end_j = std::min(sz, i + look_ahead_count);
