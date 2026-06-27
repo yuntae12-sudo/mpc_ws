@@ -22,13 +22,6 @@ roslaunch mpc_node mpc_node.launch
 ```
 이때 gps,imu 위치 2,0,0으로 실행해야 경로 추정이 잘됨
 
-## 해야할 일
-1. PID제어기가 현재 종방향 제어를 하고 있는 상황 이를 완전히 mpc로 바꿔야함
-2. 현재 ROS토픽으로 진행중 이를 UDP로 변환
-3. planning 개발
-+파라미터 조금씩 하면서 수정 필요
-
-
 ## 6/27일 개발 내용
 6/27
 
@@ -69,3 +62,11 @@ controller/mpc_node.cpp: ReferencePath를 받아 solveMPC() 호출만 (Controlle
 MPC solver는 ReferencePath를 입력으로 받아야 동작하므로 Planner가 필요함
 하지만 Planner 로직을 mpc_node에서 분리해두면 나중에 Expert/PA/SA Planner로 교체할 때 path_planner.cpp만 바꾸면 됨
 추후 Expert Planner, PA, SA 모두 같은 MPC Controller 재사용 가능
+
+
+## 해야할 일
+1. 현재 ROS토픽으로 진행중 이를 UDP로 변환
+2. planning 개발
++파라미터 조금씩 하면서 수정 필요
++ROS 버전 나오면 인지 파트에 넘겨주고, UDP 변환 진행
+(데이터 수집 자체는 ROS로 진행해야하기 때문, UDP로 데이터 수집 시 오류가 많다고 함)

@@ -5,7 +5,7 @@
 control_frequency: 20.0
 
 mpc:
-  horizon: 15
+  horizon: 10
   dt: 0.1
   max_iterations: 25
   wheelbase: 2.8
@@ -42,8 +42,8 @@ constraints:
 planning:
   ref_window: 700
   target_vel: 10.0
-  curve_vel_sharp: 3.0
-  curve_vel_mid:   5.0
+  curve_vel_sharp: 4.0
+  curve_vel_mid:   6.0
   curve_vel_mild:  7.0
   curve_th_sharp:  0.080
   curve_th_mid:    0.035
