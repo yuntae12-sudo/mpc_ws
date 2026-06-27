@@ -20,26 +20,122 @@ static void projectControls(std::vector<MPCControl>& controls,
 }
 
 // ========================================
-// 헬퍼: cost 평가 (forward sim + total cost)
+// 헬퍼: 선형 모델로 trajectory 예측
+//   x_{k+1} = A_k * x_k + B_k * u_k + c_k
+//   predictTrajectory() 대신 사용 → 행렬 곱셈만이라 훨씬 빠름
+// ========================================
+static std::vector<MPCState> predictTrajectoryLTV(
+    const MPCState&                     x0,
+    const std::vector<MPCControl>&      U,
+    const std::vector<LinearizedModel>& models)
+{
+    std::vector<MPCState> traj;
+    traj.reserve(U.size() + 1);
+    traj.push_back(x0);
+
+    double x[4] = { x0.x, x0.y, x0.yaw, x0.vx };
+
+    for (size_t k = 0; k < U.size(); ++k) {
+        const auto& lm = models[k];
+        double u[2] = { U[k].delta, U[k].accel };
+
+        // x_next = A*x + B*u + c
+        double x_next[4] = {0, 0, 0, 0};
+        for (int i = 0; i < 4; ++i) {
+            x_next[i] = lm.c[i];
+            for (int j = 0; j < 4; ++j) x_next[i] += lm.A[i][j] * x[j];
+            for (int j = 0; j < 2; ++j) x_next[i] += lm.B[i][j] * u[j];
+        }
+
+        MPCState st;
+        st.x   = x_next[0];
+        st.y   = x_next[1];
+        st.yaw = normalizeAngle(x_next[2]);
+        st.vx  = clip(x_next[3], 0.0, 100.0);
+        traj.push_back(st);
+
+        x[0] = st.x; x[1] = st.y; x[2] = st.yaw; x[3] = st.vx;
+    }
+    return traj;
+}
+
+// ========================================
+// 헬퍼: cost 평가
+//   models 있으면 선형 모델로 trajectory 예측 (빠름)
+//   없으면 비선형 predictTrajectory() 사용 (fallback)
 // ========================================
 static double evalCost(
-    const MPCState& x0,
-    const std::vector<MPCControl>& U,
-    const ReferencePath& ref,
-    const CostmapInfo& costmap,
-    const MPCControl& prev_control,
-    const MPCParams& params,
-    std::vector<MPCState>* out_traj = nullptr)
+    const MPCState&                     x0,
+    const std::vector<MPCControl>&      U,
+    const ReferencePath&                ref,
+    const CostmapInfo&                  costmap,
+    const MPCControl&                   prev_control,
+    const MPCParams&                    params,
+    const std::vector<LinearizedModel>* models   = nullptr,
+    std::vector<MPCState>*              out_traj = nullptr)
 {
-    std::vector<MPCState> traj = predictTrajectory(
-        x0, U, params.dt, params.wheelbase, params.vel_min, params.vel_max);
+    std::vector<MPCState> traj;
+    if (models && models->size() == U.size()) {
+        // 선형 모델로 trajectory 예측
+        traj = predictTrajectoryLTV(x0, U, *models);
+    } else {
+        // fallback: 비선형 forward sim
+        traj = predictTrajectory(x0, U, params.dt, params.wheelbase,
+                                 params.vel_min, params.vel_max);
+    }
     double c = computeTotalCost(traj, U, ref, costmap, prev_control, params);
     if (out_traj) *out_traj = std::move(traj);
     return c;
 }
 
 // ========================================
-// MPC Solver (Projected Gradient Descent with Armijo line search)
+// 헬퍼: 선형 모델 기반 gradient 계산 (central diff)
+//
+//   기존과 수식은 동일하지만 evalCost 내부에서
+//   predictTrajectory() 대신 행렬 곱(predictTrajectoryLTV)을 사용하므로
+//   연산량이 대폭 줄어듦
+//
+//   기존: evalCost 4N번 호출 → 내부에서 predictTrajectory() 4N번 실행
+//   변경: evalCost 4N번 호출 → 내부에서 행렬 곱만 (비선형 적분 없음)
+// ========================================
+static std::vector<MPCControl> computeGradient(
+    const MPCState&                     x0,
+    const std::vector<MPCControl>&      U,
+    const std::vector<LinearizedModel>& models,
+    const ReferencePath&                ref,
+    const CostmapInfo&                  costmap,
+    const MPCControl&                   prev_control,
+    const MPCParams&                    params)
+{
+    const int N   = static_cast<int>(U.size());
+    const double eps = 1e-3;
+    std::vector<MPCControl> grad(N);
+
+    for (int k = 0; k < N; ++k) {
+        // d/d_delta
+        std::vector<MPCControl> U_p = U, U_m = U;
+        U_p[k].delta += eps;
+        U_m[k].delta -= eps;
+        grad[k].delta = (evalCost(x0, U_p, ref, costmap, prev_control, params, &models)
+                       - evalCost(x0, U_m, ref, costmap, prev_control, params, &models))
+                       / (2.0 * eps);
+
+        // d/d_accel
+        U_p = U; U_m = U;
+        U_p[k].accel += eps;
+        U_m[k].accel -= eps;
+        grad[k].accel = (evalCost(x0, U_p, ref, costmap, prev_control, params, &models)
+                       - evalCost(x0, U_m, ref, costmap, prev_control, params, &models))
+                       / (2.0 * eps);
+    }
+    return grad;
+}
+
+// ========================================
+// MPC Solver
+//   - LTV 1차 Taylor 선형화 기반 gradient 계산
+//   - Projected Gradient Descent
+//   - Armijo backtracking line search
 // ========================================
 MPCResult solveMPC(
     const MPCState&                x0,
@@ -54,7 +150,6 @@ MPCResult solveMPC(
 
     if (ref.empty()) {
         result.solver_msg = "Empty reference path";
-        // 안전 명령: 부드러운 감속, 조향 0
         result.control.delta = 0.0;
         result.control.accel = std::max(params.accel_min, -1.0);
         return result;
@@ -67,74 +162,60 @@ MPCResult solveMPC(
     }
 
     // ====================================
-    // 1) Warm-start: 이전 해를 한 스텝 shift, 부족분은 0으로
+    // 1) Warm-start: 이전 해를 한 스텝 shift, 부족분은 prev_control로
     // ====================================
     std::vector<MPCControl> U(N);
     if (static_cast<int>(warm_start.size()) >= N) {
         for (int i = 0; i < N - 1; ++i) U[i] = warm_start[i + 1];
-        U[N - 1] = warm_start[N - 1];  // 마지막은 복제
+        U[N - 1] = warm_start[N - 1];
     } else {
-        for (int i = 0; i < N; ++i) {
-            //U[i].delta = 0.0;
-            //U[i].accel = 0.0;
-            U[i]=prev_control;
-        }
+        for (int i = 0; i < N; ++i) U[i] = prev_control;
     }
     projectControls(U, prev_control, params);
 
     // ====================================
-    // 2) 최적화 루프
+    // 2) 현재 U 기반으로 LTV 선형화 모델 계산
+    //    warm-start U를 동작점으로 삼아 각 스텝 A_k, B_k, c_k 확보
+    //    → 이후 gradient/line search에서 비선형 forward sim 대체
     // ====================================
-    double cost_cur = evalCost(x0, U, ref, costmap, prev_control, params);
+    std::vector<LinearizedModel> models = buildLTVModels(
+        x0, U, params.dt, params.wheelbase, params.vel_min, params.vel_max);
+
+    // ====================================
+    // 3) 최적화 루프
+    // ====================================
+    double cost_cur = evalCost(x0, U, ref, costmap, prev_control, params, &models);
     double lr = params.lr_init;
-    const double eps = 1e-3;  // gradient stencil
 
     for (int iter = 0; iter < params.max_iterations; ++iter) {
-        // ---- 그래디언트 (central diff) ----
-        std::vector<MPCControl> grad(N);
-        for (int k = 0; k < N; ++k) {
-            // d/d_delta
-            U[k].delta += eps;
-            double c_p = evalCost(x0, U, ref, costmap, prev_control, params);
-            U[k].delta -= 2.0 * eps;
-            double c_m = evalCost(x0, U, ref, costmap, prev_control, params);
-            U[k].delta += eps;
-            grad[k].delta = (c_p - c_m) / (2.0 * eps);
 
-            // d/d_accel
-            U[k].accel += eps;
-            c_p = evalCost(x0, U, ref, costmap, prev_control, params);
-            U[k].accel -= 2.0 * eps;
-            c_m = evalCost(x0, U, ref, costmap, prev_control, params);
-            U[k].accel += eps;
-            grad[k].accel = (c_p - c_m) / (2.0 * eps);
-        }
+        // ---- gradient 계산 (선형 모델 기반) ----
+        std::vector<MPCControl> grad = computeGradient(
+            x0, U, models, ref, costmap, prev_control, params);
 
-        // 그래디언트 노름 (수렴 체크용)
+        // 수렴 체크
         double grad_norm2 = 0.0;
         for (int k = 0; k < N; ++k)
-            grad_norm2 += grad[k].delta * grad[k].delta + grad[k].accel * grad[k].accel;
-        if (grad_norm2 < params.convergence_eps * params.convergence_eps) {
-            break;  // 충분히 수렴
-        }
+            grad_norm2 += grad[k].delta * grad[k].delta
+                        + grad[k].accel * grad[k].accel;
+        if (grad_norm2 < params.convergence_eps * params.convergence_eps) break;
 
         // ---- Armijo backtracking line search ----
         double alpha = lr;
         std::vector<MPCControl> U_new(N);
         double cost_new = cost_cur;
         bool accepted = false;
+
         for (int ls = 0; ls < params.line_search_steps; ++ls) {
-            // 후보 업데이트
             for (int k = 0; k < N; ++k) {
-                // 초기 step 일수록 더 크게 적용 (시간 중요도)
                 double w = 1.0 / (1.0 + 0.1 * k);
                 U_new[k].delta = U[k].delta - alpha * w * grad[k].delta;
                 U_new[k].accel = U[k].accel - alpha * w * grad[k].accel;
             }
             projectControls(U_new, prev_control, params);
-            cost_new = evalCost(x0, U_new, ref, costmap, prev_control, params);
+            // line search cost도 선형 모델로 평가
+            cost_new = evalCost(x0, U_new, ref, costmap, prev_control, params, &models);
 
-            // Armijo: cost 가 충분히 작아졌으면 accept
             if (cost_new < cost_cur - 1e-4 * alpha * grad_norm2) {
                 accepted = true;
                 break;
@@ -144,30 +225,33 @@ MPCResult solveMPC(
 
         if (accepted) {
             U = std::move(U_new);
-            // step 정확도 향상에 따라 lr 소폭 증가
             lr = std::min(params.lr_init, alpha * 1.5);
-            // 개선이 미미하면 종료
+
+            // U가 바뀌었으니 선형화 모델도 갱신
+            models = buildLTVModels(
+                x0, U, params.dt, params.wheelbase, params.vel_min, params.vel_max);
+
             if (cost_cur - cost_new < params.convergence_eps) {
                 cost_cur = cost_new;
                 break;
             }
             cost_cur = cost_new;
         } else {
-            // 어떤 alpha 로도 cost 못 줄임 → lr 더 줄이고 한 번 더
             lr *= 0.5;
             if (lr < params.lr_min) break;
         }
     }
 
     // ====================================
-    // 3) 결과 패키징
+    // 4) 결과 패키징
+    //    최종 trajectory는 비선형 모델로 다시 계산 (근사 오차 제거)
     // ====================================
     std::vector<MPCState> traj;
-    double final_cost = evalCost(x0, U, ref, costmap, prev_control, params, &traj);
+    evalCost(x0, U, ref, costmap, prev_control, params, nullptr, &traj);
 
     result.controls         = U;
     result.predicted_states = traj;
-    result.cost             = final_cost;
+    result.cost             = cost_cur;
     result.control          = U[0];
     result.success          = true;
     result.solver_msg       = "OK";

@@ -10,6 +10,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <array>
 
 #include <ros/ros.h>
 #include <nav_msgs/OccupancyGrid.h>
