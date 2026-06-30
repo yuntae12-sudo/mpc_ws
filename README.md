@@ -63,6 +63,8 @@ MPC solver는 ReferencePath를 입력으로 받아야 동작하므로 Planner가
 하지만 Planner 로직을 mpc_node에서 분리해두면 나중에 Expert/PA/SA Planner로 교체할 때 path_planner.cpp만 바꾸면 됨
 추후 Expert Planner, PA, SA 모두 같은 MPC Controller 재사용 가능
 
+## 대회 규정에 맞는 ROS1 msgs 파일 클론
+git clone -b beta_drive https://github.com/MORAI-Autonomous/MORAI-ROS_morai_msgs.git
 
 ## 해야할 일
 1. 현재 ROS토픽으로 진행중 이를 UDP로 변환
