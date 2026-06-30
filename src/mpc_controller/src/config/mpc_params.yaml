@@ -5,16 +5,16 @@
 control_frequency: 20.0
 
 mpc:
-  horizon: 15
+  horizon: 14
   dt: 0.1
   max_iterations: 25
-  wheelbase: 2.7
+  wheelbase: 3.0
 
 cost:
   path_error: 4.0
-  heading_error: 5.0      # 6.0→3.0: 과도한 heading 보정이 오버슈트 유발
+  heading_error: 3.0      # 6.0→3.0: 과도한 heading 보정이 오버슈트 유발
   speed_error: 2.0        # 3.0→2.0: 급정거 방지
-  control: 1.0            # 2.0→1.0: steer effort 페널티 완화
+  control: 1.25            # 2.0→1.0: steer effort 페널티 완화
   control_rate: 10.0      # 조향 변화율 억제 (accel은 cost_function 내부에서 *0.05)
   obstacle: 10.0
   terminal: 8.0
@@ -34,7 +34,7 @@ constraints:
     max_reverse: -5.0
   velocity:
     min: 0.0
-    max: 40.0
+    max: 60.0
   obstacle:
     safety_margin: 0.5
     costmap_threshold: 90.0
@@ -42,8 +42,8 @@ constraints:
 planning:
   ref_window: 700
   target_vel: 10.0
-  curve_vel_sharp: 3.0
-  curve_vel_mid:   5.0
+  curve_vel_sharp: 4.0
+  curve_vel_mid:   5.5
   curve_vel_mild:  7.0
   curve_th_sharp:  0.080
   curve_th_mid:    0.035

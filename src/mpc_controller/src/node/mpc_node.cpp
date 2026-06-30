@@ -83,7 +83,7 @@ void publishCtrlCmd(double steering_rad,
 {
     morai_msgs::CtrlCmd cmd;
     cmd.longlCmdType = 1;
-    cmd.front_steer  = -steering_rad;
+    cmd.steering  = steering_rad;
     cmd.accel        = clip(accel_norm, 0.0, 1.0);
     cmd.brake        = clip(brake_norm, 0.0, 1.0);
     cmd_pub.publish(cmd);
