@@ -6,6 +6,7 @@
 #include <vector>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 
 #include "planner/fsm/state.hpp"
 
