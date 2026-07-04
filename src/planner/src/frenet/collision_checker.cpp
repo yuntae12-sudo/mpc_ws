@@ -107,6 +107,49 @@ void FilterByCollision(std::vector<FrenetPath>& combined,
             }
         }
 
+        // [Sec.VI/Fig.6] reactive layer 최소 lookahead 보강: 후보 자신의 T가
+        // cfg.reactive_lookahead보다 짧으면, 그 이후는 후보의 마지막 상태
+        // (s_dot, d)를 그대로 유지("coast")한다고 가정해 lookahead까지 계속
+        // 검사한다. path.valid가 이미 위 루프에서 false가 됐으면(저속 등)
+        // 여기서 더 볼 필요 없음.
+        //
+        // 마진은 후보 자신의 마지막 시점(last_t) 값으로 고정한다 — margin_growth_rate는
+        // 원래 후보 자신의 실제 구간(최대 5초)을 염두에 둔 값인데, 이걸 연장구간까지
+        // 그대로 키우면 "이미 안전하게 다 피한 후보"까지 연장 시간이 길어질수록 마진이
+        // 비현실적으로 커져서 가짜로 충돌 판정되는 버그가 생긴다 (오프라인 시뮬레이션으로
+        // 확인: growth_rate>0일 때 reactive_lookahead를 키울수록 오히려 회피 후보까지
+        // 전부 무효화됨). "이 이후로는 뭘 할지 모른다"는 가정에서 마진을 계속 키우는 건
+        // 근거가 없으므로, 후보가 실제로 관측된 마지막 마진 값을 그대로 유지한다.
+        if (path.valid && !collided && !path.t.empty()) {
+            const double dt = (path.t.size() >= 2) ? (path.t[1] - path.t[0]) : 0.1;
+            const double last_t     = path.t.back();
+            const double last_s     = path.s.back();
+            const double last_s_dot = path.s_d.back();
+            const double last_d     = path.d.back();
+            const double coast_margin = cfg.safety_margin + cfg.margin_growth_rate * last_t;
+
+            if (std::abs(last_s_dot) >= kMinSpeedForCheck) {
+                for (double t = last_t + dt; t <= cfg.reactive_lookahead + 1e-9 && !collided; t += dt) {
+                    const double s_coast = last_s + last_s_dot * (t - last_t);
+
+                    RefPoint rp = Interpolate(ref, s_coast);
+                    // 등속 직진 가정이므로 s_ddot=0, d_dot=0, d_ddot=0 -> d_prime=d_pprime=0
+                    CartesianState cs = FrenetToCartesian(rp, s_coast, last_s_dot, 0.0,
+                                                           last_d, 0.0, 0.0);
+
+                    OrientedBox ego_box = MakeEgoBox(cs, ego_shape, coast_margin);
+
+                    for (const auto& obj : obstacles) {
+                        OrientedBox obs_box = MakeObstacleBox(obj, t, 0.0);
+                        if (CheckOBBOverlap(ego_box, obs_box)) {
+                            collided = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         if (collided) {
             path.valid = false;
         }

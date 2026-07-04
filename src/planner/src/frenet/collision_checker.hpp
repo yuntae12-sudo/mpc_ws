@@ -23,6 +23,15 @@ struct VehicleShape {
 struct CollisionCheckConfig {
     double safety_margin;       // 기본 안전마진 [m] (자차 폭/길이에 사방으로 더해짐)
     double margin_growth_rate;  // 시간에 따라 마진이 커지는 비율 [m/s], margin(t)=safety_margin+rate*t
+
+    // [Sec.VI/Fig.6] "reactive layer"는 장기목표 후보(Tj 격자, 2~5s)와 별개로
+    // 항상 최소 이 시간까지는 충돌체크를 한다 (논문 Fig.6 캡션의 "3.0s lookahead").
+    // 실측으로 확인된 문제: Tj가 짧은 후보는 자기 T 안에 장애물이 아예 안 들어와서
+    // "충돌 없음"으로 잘못 판정되고, 그게 저크/시간비용이 싸서 계속 선택되다가
+    // 정작 회피를 시작해야 할 타이밍을 놓친다. reactive_lookahead까지는 후보의
+    // 마지막 상태(속도, 횡오프셋)를 그대로 유지("coast")한다고 가정해 검사를
+    // 연장함으로써 이 사각지대를 없앤다.
+    double reactive_lookahead;  // [s], 논문 기본값 3.0
 };
 
 // =========================================================

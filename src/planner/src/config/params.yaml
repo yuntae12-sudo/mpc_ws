@@ -17,7 +17,11 @@ planner:
   # --- PathGeneratorConfig (path_generator.hpp) ---------------
   # 논문 Sec.IV-A/V-A/V-B의 후보 샘플링 격자. 각 항목은 (min, max, step).
   path_generator:
-    lateral_d1:     { min: -1.5, max: 1.5, step: 0.5 }   # d1 후보 범위 [m]
+    lateral_d1:     { min: -3.0, max: 3.0, step: 0.5 }   # d1 후보 범위 [m].
+                                                          # 자차/장애물 폭(각 1.9m)+안전마진 기준 필요
+                                                          # 여유가 약 2.4~2.7m라, 기존 ±1.5m로는 같은
+                                                          # 차선 폭의 정지 장애물을 물리적으로 못 피함
+                                                          # (오프라인 회피 시뮬레이션으로 확인, ±3.0m으로 성공).
     time_horizon:   { min: 2.0,  max: 5.0, step: 1.0 }   # Tj 후보 범위 [s], lateral/longitudinal 공통
     delta_s:        { min: -3.0, max: 3.0, step: 1.0 }   # Δsi 범위 [m] (following/merging/stopping)
     delta_s_dot:    { min: -2.0, max: 2.0, step: 1.0 }   # Δṡi 범위 [m/s] (velocity keeping)
@@ -57,3 +61,9 @@ planner:
   collision_check:
     safety_margin: 0.3        # 기본 안전마진 [m]
     margin_growth_rate: 0.1   # 마진이 시간에 따라 커지는 비율 [m/s]
+    reactive_lookahead: 8.0   # [s] 논문 Sec.VI/Fig.6 "reactive layer" 개념(짧은 T 후보가
+                               # 장애물을 못 보고 통과되는 사각지대 방지). 논문 예시값은 3.0s이지만,
+                               # 이 프로젝트의 target_speed(~5m/s)/time_horizon.max(5s) 기준으로
+                               # 오프라인 회피 시뮬레이션을 해보니 3.0s는 회피기동을 완성하기엔
+                               # 부족했고(감지만 되고 전부 무효화), time_horizon.max + 3s 여유인
+                               # 8.0s에서 실제 회피 성공을 확인함. 속도/차량이 달라지면 재검증 필요.

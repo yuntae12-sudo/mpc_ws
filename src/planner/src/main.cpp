@@ -282,8 +282,8 @@ bool LoadReferenceLine(const std::string& path, RefLine& out_ref) {
 // params.yaml -> 각 config struct 로드 (config/params.yaml 키 구조와 동일)
 // =========================================================
 void LoadParams(ros::NodeHandle& pnh) {
-    pnh.param<double>("planner/path_generator/lateral_d1/min",   g_path_cfg.lateral_d1.min,   -1.5);
-    pnh.param<double>("planner/path_generator/lateral_d1/max",   g_path_cfg.lateral_d1.max,    1.5);
+    pnh.param<double>("planner/path_generator/lateral_d1/min",   g_path_cfg.lateral_d1.min,   -3.0);
+    pnh.param<double>("planner/path_generator/lateral_d1/max",   g_path_cfg.lateral_d1.max,    3.0);
     pnh.param<double>("planner/path_generator/lateral_d1/step",  g_path_cfg.lateral_d1.step,   0.5);
     pnh.param<double>("planner/path_generator/time_horizon/min", g_path_cfg.time_horizon.min,  2.0);
     pnh.param<double>("planner/path_generator/time_horizon/max", g_path_cfg.time_horizon.max,  5.0);
@@ -313,6 +313,7 @@ void LoadParams(ros::NodeHandle& pnh) {
 
     pnh.param<double>("planner/collision_check/safety_margin",      g_collision_cfg.safety_margin,      0.3);
     pnh.param<double>("planner/collision_check/margin_growth_rate", g_collision_cfg.margin_growth_rate, 0.1);
+    pnh.param<double>("planner/collision_check/reactive_lookahead", g_collision_cfg.reactive_lookahead, 8.0);
 
     // FSM이 아직 없을 때 쓰는 고정 목표속도 (config/params.yaml엔 없던 값 -
     // 이 검증 노드 전용 파라미터라 여기서만 기본값을 관리)
