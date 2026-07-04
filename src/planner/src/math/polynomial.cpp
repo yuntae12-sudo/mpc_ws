@@ -92,7 +92,32 @@ double EvalAcc(const QuarticPolynomial& p, double t) {
 }
 
 double EvalJerk(const QuarticPolynomial& p, double t) {
-    
+
     return 6.0 * p.a3 + 24.0 * p.a4 * t;
 
+}
+
+// ================= JerkCost (닫힌 형태 적분) ==================
+//
+// Quintic: p'''(t) = 6a3 + 24a4 t + 60a5 t^2
+// (p''')^2 = 36a3^2 + 288a3a4 t + (720a3a5+576a4^2) t^2 + 2880a4a5 t^3 + 3600a5^2 t^4
+// 0~T 적분:
+double JerkCost(const QuinticPolynomial& p, double T) {
+    double T2 = T * T, T3 = T2 * T, T4 = T3 * T, T5 = T4 * T;
+
+    return 36.0 * p.a3 * p.a3 * T
+         + 144.0 * p.a3 * p.a4 * T2
+         + (240.0 * p.a3 * p.a5 + 192.0 * p.a4 * p.a4) * T3
+         + 720.0 * p.a4 * p.a5 * T4
+         + 720.0 * p.a5 * p.a5 * T5;
+}
+
+// Quartic: p'''(t) = 6a3 + 24a4 t
+// (p''')^2 = 36a3^2 + 288a3a4 t + 576a4^2 t^2
+double JerkCost(const QuarticPolynomial& p, double T) {
+    double T2 = T * T, T3 = T2 * T;
+
+    return 36.0 * p.a3 * p.a3 * T
+         + 144.0 * p.a3 * p.a4 * T2
+         + 192.0 * p.a4 * p.a4 * T3;
 }

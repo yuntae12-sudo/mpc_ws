@@ -4,12 +4,8 @@
 #ifndef PLANNER_FSM_TRANSITION_CONDITION_HPP
 #define PLANNER_FSM_TRANSITION_CONDITION_HPP
 
-#include "planner/global.hpp"
+#include "global/global.hpp"
 
-namespace planner {
-
-    BehaviorState DecideState(BehaviorState current_state, const FsmInput& input);
-
-} // namespace planner
+BehaviorState DecideState(BehaviorState current_state, const FsmInput& input);
 
 #endif

@@ -2,8 +2,6 @@
 #ifndef PLANNER_FSM_STATE_HPP
 #define PLANNER_FSM_STATE_HPP
 
-namespace planner{
-
 enum BehaviorState {
     LANE_KEEPING,
     FOLLOWING,
@@ -16,6 +14,5 @@ enum BehaviorState {
     STOP,
     EMERGENCY
 };
-} // namespace planner
 
 #endif

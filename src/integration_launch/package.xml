@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>integration_launch</name>
+  <version>0.0.0</version>
+  <description>
+    Frenet Frame Planner(planner)와 MPC Controller(mpc_node)를 함께 띄우는
+    통합 launch 전용 패키지. 소스 코드는 없고 launch 파일만 있음.
+  </description>
+
+  <maintainer email="autonav@todo.todo">autonav</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <!-- 빌드 의존성은 없음(코드가 없음). 아래는 실행 시 필요한 패키지를
+       명시하는 용도(rosdep/문서화) - roslaunch의 $(find)는 이 태그와
+       무관하게 동작하지만, 어떤 패키지들을 함께 띄우는지 명확히 하기 위해 남김. -->
+  <exec_depend>planner</exec_depend>
+  <exec_depend>mpc_node</exec_depend>
+
+  <export>
+    <!-- 이 패키지는 빌드 산출물(실행 파일/라이브러리)이 없는 launch-only 패키지 -->
+  </export>
+</package>

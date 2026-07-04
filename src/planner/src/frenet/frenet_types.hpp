@@ -46,6 +46,19 @@ struct FrenetPath {
     double cost_lon;
     double cost_total;
 
+    // --- cost.hpp가 비용을 조립하는 데 필요한 재료 ---
+    // Jt = ∫(p''')^2 dt (Prop.1의 jerk 적분항). path_generator가 다항식 계수를
+    // 갖고 있는 시점(생성 직후)에 닫힌 형태(해석적 공식)로 미리 계산해서 채워넣는다.
+    // 샘플링된 d/s 배열만으로는 원본 다항식 계수를 복원할 수 없어서 사후에는 계산 불가.
+    double jerk_cost_lat;   // Jt(d(t))
+    double jerk_cost_lon;   // Jt(s(t))
+
+    // 종료조건 오프셋 (Sec.V-A/B의 [s1-sd] = Δsi, [s_dot1-s_dot_d] = Δs_dot_i).
+    // Following/Merging/Stopping 후보는 delta_s만, Velocity Keeping 후보는
+    // delta_s_dot만 채우고 나머지는 0으로 둔다 (둘 다 0이면 자동으로 그 항이 사라짐).
+    double delta_s;
+    double delta_s_dot;
+
     // Available Flag
     bool valid;
 

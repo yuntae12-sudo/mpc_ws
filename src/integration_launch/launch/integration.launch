@@ -1,0 +1,19 @@
+<!--
+  Frenet Frame Planner(planner) + MPC Controller(mpc_node) 통합 실행.
+
+  각 패키지의 기존 launch 파일을 그대로 include만 하는 방식 — 두 노드의
+  파라미터/실행 방식은 각자 launch 파일이 이미 정의하고 있으므로 여기서
+  중복 정의하지 않음. 두 패키지 중 하나만 바꿔도 이 파일은 그대로 유지됨.
+
+  주의(현재 상태, 완전한 통합 아님):
+    mpc_controller/src/node/mpc_node.cpp의 CBLanePath 콜백은 아직 미구현
+    ("CSV 기반 waypoints 가 권위" 주석 참고) — 즉 mpc_node는 지금
+    planner가 publish하는 /frenet_planner/trajectory를 실제로 소비하지
+    않고, 자체적으로 CSV에서 바로 레퍼런스를 만들어서 쓴다. 이 launch는
+    두 노드를 "함께 띄우기"만 하고, 둘을 실제로 잇는 배선(CBLanePath
+    구현)은 별도 작업으로 남아있음.
+-->
+<launch>
+  <include file="$(find planner)/launch/planner_node.launch" />
+  <include file="$(find mpc_node)/launch/mpc_node.launch" />
+</launch>

@@ -140,3 +140,49 @@ void CartesianToFrenet(const RefLine& ref, const CartesianState& cs,
                            - (dkappa_r * d + kappa_r * d_prime));
     s_ddot = rhs * cos_dtheta / one_minus_kd;
 }
+
+// =========================================================
+// ConvertToCartesianPath
+//
+// path.t.size()개의 각 샘플 i에 대해 아래 세 단계를 순서대로 수행하고,
+// 그 결과를 버리지 않고 CartesianPath의 각 vector에 그대로 쌓는다.
+// (이 세 단계 자체는 FilterByCurvature/FilterByCollision에서 이미
+//  "검사용"으로 쓰인 것과 동일 — 헤더의 설계 노트 참고)
+//
+//   ① TimeDerivToArcDeriv: (d_dot, d_ddot) -> (d_prime, d_pprime)
+//      path_generator가 lateral을 고속 모드(d(t))로 생성했으므로,
+//      FrenetToCartesian이 요구하는 arc-length 미분으로 먼저 바꿔줘야 함.
+//   ② Interpolate: 그 샘플의 s 위치에서 center line 정보(RefPoint) 조회
+//   ③ FrenetToCartesian: 실제 (x, y, yaw, kappa, v, a) 계산
+// =========================================================
+
+CartesianPath ConvertToCartesianPath(const FrenetPath& path, const RefLine& ref) {
+    CartesianPath result;
+
+    const size_t n = path.t.size();
+    result.x.reserve(n);
+    result.y.reserve(n);
+    result.yaw.reserve(n);
+    result.kappa.reserve(n);
+    result.v.reserve(n);
+    result.a.reserve(n);
+
+    for (size_t i = 0; i < n; i++) {
+        double d_prime, d_pprime;
+        TimeDerivToArcDeriv(path.s_d[i], path.s_dd[i], path.d_d[i], path.d_dd[i],
+                             d_prime, d_pprime);
+
+        RefPoint rp = Interpolate(ref, path.s[i]);
+        CartesianState cs = FrenetToCartesian(rp, path.s[i], path.s_d[i], path.s_dd[i],
+                                               path.d[i], d_prime, d_pprime);
+
+        result.x.push_back(cs.x);
+        result.y.push_back(cs.y);
+        result.yaw.push_back(cs.yaw);
+        result.kappa.push_back(cs.kappa);
+        result.v.push_back(cs.v);
+        result.a.push_back(cs.a);
+    }
+
+    return result;
+}

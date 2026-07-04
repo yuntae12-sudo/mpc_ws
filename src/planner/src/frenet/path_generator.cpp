@@ -2,8 +2,6 @@
 #include "math/polynomial.hpp"
 #include "math/frenet_converter.hpp"
 
-namespace {
-
 // =========================================================
 // SamplingRange(min,max,step) -> 실제 후보값 목록
 // =========================================================
@@ -32,11 +30,17 @@ std::vector<double> SampleTimes(double T, double dt) {
 }
 
 // 횡방향 quintic 하나를 시간 샘플에 맞춰 FrenetPath로 변환 (d, d_d, d_dd만 채움)
+// jerk_cost_lat = Jt(d(t))을 다항식 계수로부터 닫힌 형태로 미리 계산해둔다
+// (계수는 이 함수를 벗어나면 사라지므로 cost.hpp가 나중에 계산할 방법이 없음).
 FrenetPath SampleLateralQuintic(const QuinticPolynomial& poly, const std::vector<double>& times) {
     FrenetPath path;
     path.t = times;
     path.valid = true;
     path.cost_lat = path.cost_lon = path.cost_total = 0.0;
+    path.jerk_cost_lat = JerkCost(poly, times.back());
+    path.jerk_cost_lon = 0.0;
+    path.delta_s = 0.0;
+    path.delta_s_dot = 0.0;
     path.d.reserve(times.size());
     path.d_d.reserve(times.size());
     path.d_dd.reserve(times.size());
@@ -49,11 +53,16 @@ FrenetPath SampleLateralQuintic(const QuinticPolynomial& poly, const std::vector
 }
 
 // 종방향 quintic 하나를 시간 샘플에 맞춰 FrenetPath로 변환 (s, s_d, s_dd만 채움)
+// delta_s(Δsi)는 호출 측(Following/Stopping/Merging)이 채워준다.
 FrenetPath SampleLongitudinalQuintic(const QuinticPolynomial& poly, const std::vector<double>& times) {
     FrenetPath path;
     path.t = times;
     path.valid = true;
     path.cost_lat = path.cost_lon = path.cost_total = 0.0;
+    path.jerk_cost_lat = 0.0;
+    path.jerk_cost_lon = JerkCost(poly, times.back());
+    path.delta_s = 0.0;
+    path.delta_s_dot = 0.0;
     path.s.reserve(times.size());
     path.s_d.reserve(times.size());
     path.s_dd.reserve(times.size());
@@ -66,11 +75,16 @@ FrenetPath SampleLongitudinalQuintic(const QuinticPolynomial& poly, const std::v
 }
 
 // 종방향 quartic 하나(velocity keeping)를 시간 샘플에 맞춰 FrenetPath로 변환
+// delta_s_dot(Δṡi)는 호출 측(GenerateVelocityKeepingCandidates)이 채워준다.
 FrenetPath SampleLongitudinalQuartic(const QuarticPolynomial& poly, const std::vector<double>& times) {
     FrenetPath path;
     path.t = times;
     path.valid = true;
     path.cost_lat = path.cost_lon = path.cost_total = 0.0;
+    path.jerk_cost_lat = 0.0;
+    path.jerk_cost_lon = JerkCost(poly, times.back());
+    path.delta_s = 0.0;
+    path.delta_s_dot = 0.0;
     path.s.reserve(times.size());
     path.s_d.reserve(times.size());
     path.s_dd.reserve(times.size());
@@ -81,8 +95,6 @@ FrenetPath SampleLongitudinalQuartic(const QuarticPolynomial& poly, const std::v
     }
     return path;
 }
-
-}  // namespace
 
 // =========================================================
 // [Sec.IV-A] 횡방향 후보 집합 (고속 모드, d(t) quintic)
@@ -145,7 +157,9 @@ std::vector<FrenetPath> GenerateFollowingCandidates(const FrenetState& start,
             const double s1 = s_target_T + delta;
             QuinticPolynomial poly = MakeQuintic(start.s, start.s_d, start.s_dd,
                                                   s1, s_target_dot_T, s_target_ddot_T, T);
-            result.push_back(SampleLongitudinalQuintic(poly, times));
+            FrenetPath path = SampleLongitudinalQuintic(poly, times);
+            path.delta_s = delta;   // Ct의 [s1-sd]^2 = delta^2 항에 쓰임
+            result.push_back(std::move(path));
         }
     }
 
@@ -173,7 +187,9 @@ std::vector<FrenetPath> GenerateStoppingCandidates(const FrenetState& start,
             const double s1 = stop_s + delta;
             QuinticPolynomial poly = MakeQuintic(start.s, start.s_d, start.s_dd,
                                                   s1, 0.0, 0.0, T);
-            result.push_back(SampleLongitudinalQuintic(poly, times));
+            FrenetPath path = SampleLongitudinalQuintic(poly, times);
+            path.delta_s = delta;
+            result.push_back(std::move(path));
         }
     }
 
@@ -212,7 +228,9 @@ std::vector<FrenetPath> GenerateMergingCandidates(const FrenetState& start,
             const double s1 = s_target_T + delta;
             QuinticPolynomial poly = MakeQuintic(start.s, start.s_d, start.s_dd,
                                                   s1, s_target_dot_T, s_target_ddot_T, T);
-            result.push_back(SampleLongitudinalQuintic(poly, times));
+            FrenetPath path = SampleLongitudinalQuintic(poly, times);
+            path.delta_s = delta;
+            result.push_back(std::move(path));
         }
     }
 
@@ -240,7 +258,9 @@ std::vector<FrenetPath> GenerateVelocityKeepingCandidates(const FrenetState& sta
             const double v1 = target_speed + dsdot;
             QuarticPolynomial poly = MakeQuartic(start.s, start.s_d, start.s_dd,
                                                   v1, 0.0, T);
-            result.push_back(SampleLongitudinalQuartic(poly, times));
+            FrenetPath path = SampleLongitudinalQuartic(poly, times);
+            path.delta_s_dot = dsdot;   // Cv의 [s_dot1-s_dot_d]^2 = dsdot^2 항에 쓰임
+            result.push_back(std::move(path));
         }
     }
 
@@ -306,6 +326,10 @@ std::vector<FrenetPath> CombineLateralLongitudinal(const std::vector<FrenetPath>
             combined.s_dd  = lon.s_dd;
             combined.valid = true;
             combined.cost_lat = combined.cost_lon = combined.cost_total = 0.0;
+            combined.jerk_cost_lat = lat.jerk_cost_lat;
+            combined.jerk_cost_lon = lon.jerk_cost_lon;
+            combined.delta_s       = lon.delta_s;
+            combined.delta_s_dot   = lon.delta_s_dot;
 
             result.push_back(std::move(combined));
         }
@@ -360,17 +384,15 @@ void FilterByCurvature(std::vector<FrenetPath>& combined,
 // [Sec.VII] resolveManeuver
 // =========================================================
 
-namespace {
-
 // AVOID 모드는 PlannerCommand.avoidance_d_offset을 그대로 lateral 목표 중심으로 사용.
 // LANE_CHANGE_*는 물리적 차선폭 파라미터가 아직 설정에 없어 TODO로 남김.
-double ResolveLateralOffset(const planner::PlannerCommand& cmd) {
+double ResolveLateralOffset(const PlannerCommand& cmd) {
     switch (cmd.mode) {
-        case planner::AVOID:
+        case AVOID:
             return cmd.avoidance_d_offset;
 
-        case planner::LANE_CHANGE_LEFT:
-        case planner::LANE_CHANGE_RIGHT:
+        case LANE_CHANGE_LEFT:
+        case LANE_CHANGE_RIGHT:
             // TODO(추후 개발 필요): lane_width 설정값이 config에 추가되면
             // target_lane * lane_width 로 목표 오프셋을 계산해야 함.
             // 지금은 차선 변경 오프셋을 반영하지 않고 0으로 둔다.
@@ -381,10 +403,8 @@ double ResolveLateralOffset(const planner::PlannerCommand& cmd) {
     }
 }
 
-}  // namespace
-
 std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
-                                         const planner::PlannerCommand& cmd,
+                                         const PlannerCommand& cmd,
                                          const RefLine& ref,
                                          const PathGeneratorConfig& cfg,
                                          const KinematicLimits& limits) {
@@ -401,30 +421,30 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
     std::vector<FrenetPath> longitudinal_set;
 
     switch (cmd.mode) {
-        case planner::FOLLOWING:
+        case FOLLOWING:
             longitudinal_set = GenerateFollowingCandidates(start, cmd.leader_s, cmd.leader_speed,
                                                             cmd.leader_accel, cmd.time_gap,
                                                             cmd.min_gap, cfg);
             break;
 
-        case planner::STOP:
-        case planner::INTERSECTION_WAIT:
+        case STOP:
+        case INTERSECTION_WAIT:
             longitudinal_set = GenerateStoppingCandidates(start, cmd.stop_position, cfg);
             break;
 
-        case planner::EMERGENCY:
+        case EMERGENCY:
             // FSM이 emergency 상황에 맞는 stop_position(예: 현재 위치 바로 앞)을
             // 설정해준다고 가정. path_generator는 물리적으로 안전한 제동거리를
             // 스스로 계산하지 않는다 (TODO: 추후 FSM과 함께 정책 확정 필요).
             longitudinal_set = GenerateStoppingCandidates(start, cmd.stop_position, cfg);
             break;
 
-        case planner::LANE_KEEPING:
-        case planner::LANE_CHANGE_LEFT:
-        case planner::LANE_CHANGE_RIGHT:
-        case planner::TURN_LEFT:
-        case planner::TURN_RIGHT:
-        case planner::AVOID:
+        case LANE_KEEPING:
+        case LANE_CHANGE_LEFT:
+        case LANE_CHANGE_RIGHT:
+        case TURN_LEFT:
+        case TURN_RIGHT:
+        case AVOID:
         default:
             // 논문 Sec.VII: velocity keeping은 앞 차가 없는 대부분의 상황(차선유지,
             // 차선변경, 회피 등)의 기본 종방향 모드.

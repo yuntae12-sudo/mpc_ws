@@ -1,0 +1,16 @@
+<!--
+  Frenet Frame Planner 노드 실행용 launch 파일.
+  mpc_controller/launch/mpc_node.launch와 동일한 패턴(rosparam load를
+  <node> 안에 넣어서 노드의 private namespace(~)로 파라미터를 로드).
+
+  전제:
+    - MORAI-ROS 브릿지가 이미 떠 있어서 /Ego_topic, /Object_topic이
+      publish되고 있어야 함 (이 launch가 시뮬레이터 자체를 띄우지는 않음).
+    - config/params.yaml의 waypoint_file이 가리키는 CSV가 존재해야 함
+      (지금은 mpc_controller/src/config/path.txt를 그대로 참조).
+-->
+<launch>
+  <node pkg="planner" type="frenet_planner_node" name="frenet_planner_node" output="screen">
+    <rosparam command="load" file="$(find planner)/src/config/params.yaml" />
+  </node>
+</launch>

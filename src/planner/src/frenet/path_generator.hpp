@@ -155,7 +155,7 @@ void FilterByCurvature(std::vector<FrenetPath>& combined,
 // =========================================================
 // [Sec.VII] resolveManeuver — FSM ↔ Path Generator 연동 지점
 //
-// planner::PlannerCommand.mode에 따라 활성화할 longitudinal 모드를 결정하고
+// PlannerCommand.mode에 따라 활성화할 longitudinal 모드를 결정하고
 // (예: LANE_KEEPING -> VelocityKeeping, FOLLOWING -> Following,
 //      STOP/INTERSECTION_WAIT -> Stopping, LANE_CHANGE_* -> VelocityKeeping
 //      + lateral target_lane 반영 등), lateral 후보 집합과 해당 longitudinal
@@ -169,7 +169,7 @@ void FilterByCurvature(std::vector<FrenetPath>& combined,
 // =========================================================
 
 std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
-                                         const planner::PlannerCommand& cmd,
+                                         const PlannerCommand& cmd,
                                          const RefLine& ref,
                                          const PathGeneratorConfig& cfg,
                                          const KinematicLimits& limits);
