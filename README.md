@@ -79,3 +79,5 @@ git clone -b beta_drive https://github.com/MORAI-Autonomous/MORAI-ROS_morai_msgs
 현재 Frenet Frame Planner 까지 개발 완료된 상태
 아직 리팩토링은 하지 않아서 리팩토링 과정 필요
 추가로 Planner & Controller 통합 과정 필요
+
+Planning 코드 잘 만들었는지 검증 중에 있음

@@ -64,18 +64,6 @@ double g_target_speed = 8.0;   // FSM 없을 때 쓰는 고정 목표속도 [m/s
 
 ros::Publisher g_traj_pub;
 
-// =========================================================
-// MORAI heading 단위/좌표계 변환
-//
-// TODO(검증 필요): MORAI EgoVehicleStatus/ObjectStatus의 heading 필드이
-// 실제로 degree 단위인지, 우리 RefLine/frenet_converter가 가정하는
-// "표준 수학 좌표계(x축 기준 반시계 방향이 양의 라디안)"와 회전 방향까지
-// 일치하는지 시뮬레이터에서 직접 주행시켜 확인해야 한다 (이 저장소엔
-// MORAI-ROS 브릿지의 실제 좌표계 정의 문서/launch가 없어 코드만으로는
-// 확정 불가). 지금은 "degree, 표준 수학 좌표계와 동일한 회전방향"이라고
-// 가정하고 단위만 라디안으로 바꾼다. 어긋나 있으면 이 함수 하나만
-// 고치면 되도록 변환 지점을 여기 한 곳으로 모아뒀다.
-// =========================================================
 double MoraiHeadingToYawRad(double heading_deg) {
     return heading_deg * M_PI / 180.0;
 }
@@ -310,7 +298,7 @@ void LoadParams(ros::NodeHandle& pnh) {
 
     pnh.param<double>("planner/kinematic_limits/max_lateral_accel",      g_limits.max_lateral_accel,      3.0);
     pnh.param<double>("planner/kinematic_limits/max_longitudinal_accel", g_limits.max_longitudinal_accel, 3.0);
-    pnh.param<double>("planner/kinematic_limits/max_curvature",          g_limits.max_curvature,          0.3);
+    pnh.param<double>("planner/kinematic_limits/max_curvature",          g_limits.max_curvature,          0.153);
 
     pnh.param<double>("planner/cost_weights/kj",     g_cost_weights.kj,     1.0);
     pnh.param<double>("planner/cost_weights/kt",     g_cost_weights.kt,     1.0);

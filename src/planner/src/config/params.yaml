@@ -28,7 +28,9 @@ planner:
   kinematic_limits:
     max_lateral_accel: 3.0        # |d̈| 허용치 [m/s^2]
     max_longitudinal_accel: 3.0   # |s̈| 허용치 [m/s^2]
-    max_curvature: 0.3            # |kappa_x| 허용치 [1/m] (= 1 / 최소 회전반경)
+    max_curvature: 0.153          # |kappa_x| 허용치 [1/m] (= 1 / 최소 회전반경).
+                                   # 2023 아이오닉5 최소회전반경 5.87m -> kappa_max=1/5.87=0.1704,
+                                   # 여기에 10% 안전마진(속도 상승 시 필요한 여유 반영)을 적용한 값.
 
   # --- CostWeights (cost.hpp) ---------------------------------
   # Prop.1의 C = kj*Jt + kt*g(T) + kp*h(p1) 을 실제로 구체화하는 가중치.
