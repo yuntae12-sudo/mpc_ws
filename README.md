@@ -72,3 +72,10 @@ git clone -b beta_drive https://github.com/MORAI-Autonomous/MORAI-ROS_morai_msgs
 +파라미터 조금씩 하면서 수정 필요
 +ROS 버전 나오면 인지 파트에 넘겨주고, UDP 변환 진행
 (데이터 수집 자체는 ROS로 진행해야하기 때문, UDP로 데이터 수집 시 오류가 많다고 함)
+
+
+## 7/4일 개발 내용
+
+현재 Frenet Frame Planner 까지 개발 완료된 상태
+아직 리팩토링은 하지 않아서 리팩토링 과정 필요
+추가로 Planner & Controller 통합 과정 필요
