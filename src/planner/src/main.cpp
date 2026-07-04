@@ -60,6 +60,10 @@ bool g_ego_received = false;   // velocity/acceleration(EgoVehicleStatus) 수신
 bool g_ego_pos_received = false;  // 위치(GPS) 수신 여부
 bool g_ego_yaw_received = false;  // heading(IMU) 수신 여부
 
+// 장애물 좌표 변환용 — 자차의 MORAI 월드좌표/heading (g_ego_mutex로 같이 보호됨).
+// ObjectStatus를 GPS-ENU로 바꿀 때 "자차 기준 상대위치" 매개로 쓴다.
+double g_ego_morai_x = 0.0, g_ego_morai_y = 0.0, g_ego_morai_yaw = 0.0;
+
 CoordinateReference g_coord_ref{};
 bool g_coord_ref_initialized = false;
 
@@ -86,13 +90,41 @@ double MoraiHeadingToYawRad(double heading_deg) {
 }
 
 // morai_msgs::ObjectStatus -> ObjectInfo (global.hpp) 변환
-ObjectInfo ConvertObjectStatus(const morai_msgs::ObjectStatus& obj) {
+// =========================================================
+// 장애물 좌표 변환용 자차 기준점 — 같은 순간의 MORAI 월드좌표/heading과
+// GPS-ENU 좌표/heading을 같이 들고 있는다. ObjectStatus는 MORAI 월드좌표라
+// GPS-ENU(centerline/RefLine이 쓰는 좌표계)로 바꾸려면 이걸 매개로 써야 한다.
+//
+// 실측 결과 두 좌표계 사이의 오프셋이 트랙 전체에서 상수가 아니라(자차의
+// MORAI 원점 거리에 비례해 최대 9m까지 드리프트) "고정 오프셋 한 번 계산"
+// 방식은 위험하다고 판단함. 대신 장애물처럼 항상 자차 근방(상대거리가 작음)에
+// 있는 대상만 다루므로, "자차 기준 상대위치 -> 회전보정 -> 자차의 ENU 위치에
+// 더하기" 방식을 쓰면 오차가 상대거리에만 비례해서 훨씬 작아진다
+// (yaw_diff 자체는 실측상 거의 0에 가까웠지만, 일반성을 위해 그대로 반영).
+// =========================================================
+struct EgoFrameTransform {
+    double ego_morai_x, ego_morai_y;   // 자차의 MORAI 월드좌표
+    double ego_enu_x, ego_enu_y;       // 같은 순간 자차의 GPS-ENU 좌표
+    double yaw_diff;                   // ENU_yaw - MORAI_yaw (두 좌표계의 회전차)
+};
+
+void TransformMoraiToEnu(double morai_x, double morai_y, double morai_heading,
+                          const EgoFrameTransform& tf,
+                          double& enu_x, double& enu_y, double& enu_heading) {
+    const double rel_x = morai_x - tf.ego_morai_x;
+    const double rel_y = morai_y - tf.ego_morai_y;
+    const double c = std::cos(tf.yaw_diff), s = std::sin(tf.yaw_diff);
+    enu_x = tf.ego_enu_x + rel_x * c - rel_y * s;
+    enu_y = tf.ego_enu_y + rel_x * s + rel_y * c;
+    enu_heading = morai_heading + tf.yaw_diff;
+}
+
+ObjectInfo ConvertObjectStatus(const morai_msgs::ObjectStatus& obj, const EgoFrameTransform& tf) {
     ObjectInfo info;
     info.id = obj.unique_id;
     info.type = obj.type;
-    info.x = obj.position.x;
-    info.y = obj.position.y;
-    info.heading = MoraiHeadingToYawRad(obj.heading);
+    TransformMoraiToEnu(obj.position.x, obj.position.y, MoraiHeadingToYawRad(obj.heading),
+                         tf, info.x, info.y, info.heading);
     info.speed = std::hypot(obj.velocity.x, obj.velocity.y);
     // TODO(검증 필요): MORAI ObjectStatus.size(Vector3)가 (length, width, height)
     // 순서인지 (width, length, height) 순서인지 실제 메시지 값으로 확인 필요.
@@ -171,6 +203,18 @@ void CBEgoState(const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
     g_ego_cs.kappa = 0.0;
 
     g_ego_received = true;
+
+    // 장애물(NPC) 좌표 변환용: 자차의 MORAI 월드좌표/heading을 같이 저장해둔다.
+    // ObjectStatus는 GPS가 없어서 ego처럼 직접 GPS-ENU로 바꿀 수 없으므로,
+    // "자차 기준 상대위치"를 매개로 변환한다 (CBObjects 참고). 실측 결과
+    // MORAI 월드좌표계와 GPS-ENU 좌표계 사이의 오프셋이 트랙 전체에서 상수가
+    // 아니라 자차의 MORAI 원점 거리에 비례해 최대 9m까지 드리프트하는 걸
+    // 확인했음 — 그래서 "고정 오프셋 한 번 계산" 방식 대신, 장애물처럼 항상
+    // 자차 근방(상대거리가 작음)에 있는 대상에 한해 오차가 작아지는 상대변환
+    // 방식을 쓴다.
+    g_ego_morai_x = msg->position.x;
+    g_ego_morai_y = msg->position.y;
+    g_ego_morai_yaw = MoraiHeadingToYawRad(msg->heading);
 }
 
 // =========================================================
@@ -182,11 +226,21 @@ void CBEgoState(const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
 void CBObjects(const morai_msgs::ObjectStatusList::ConstPtr& msg) {
     if (!msg) return;
 
+    EgoFrameTransform tf;
+    {
+        std::lock_guard<std::mutex> lk(g_ego_mutex);
+        tf.ego_morai_x = g_ego_morai_x;
+        tf.ego_morai_y = g_ego_morai_y;
+        tf.ego_enu_x   = g_ego_cs.x;
+        tf.ego_enu_y   = g_ego_cs.y;
+        tf.yaw_diff    = g_ego_cs.yaw - g_ego_morai_yaw;
+    }
+
     std::vector<ObjectInfo> obstacles;
     obstacles.reserve(msg->npc_list.size() + msg->pedestrian_list.size() + msg->obstacle_list.size());
-    for (const auto& o : msg->npc_list)        obstacles.push_back(ConvertObjectStatus(o));
-    for (const auto& o : msg->pedestrian_list) obstacles.push_back(ConvertObjectStatus(o));
-    for (const auto& o : msg->obstacle_list)   obstacles.push_back(ConvertObjectStatus(o));
+    for (const auto& o : msg->npc_list)        obstacles.push_back(ConvertObjectStatus(o, tf));
+    for (const auto& o : msg->pedestrian_list) obstacles.push_back(ConvertObjectStatus(o, tf));
+    for (const auto& o : msg->obstacle_list)   obstacles.push_back(ConvertObjectStatus(o, tf));
 
     std::lock_guard<std::mutex> lk(g_obstacle_mutex);
     g_obstacles = std::move(obstacles);
