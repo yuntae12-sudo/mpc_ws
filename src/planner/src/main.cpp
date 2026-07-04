@@ -19,11 +19,16 @@
 // 자매 패키지 mpc_controller(src/node/mpc_node.cpp)의 관례를 그대로 따름:
 //   - EgoVehicleStatus/ObjectStatusList 구독, CSV 기반 waypoints,
 //     ros::Timer 고정주기, pnh.param<T>() 파라미터 로드.
-//   mpc_controller는 GPS+IMU를 직접 융합해서 ego 상태를 만드는데, 그건
-//   실제 센서 노이즈(GPS 재밍 등)를 모델링하려는 목적이고, 이 노드는
-//   "Planner 알고리즘 자체 검증"이 목적이라 EgoVehicleStatus의
-//   ground-truth 값을 그대로 쓴다. 나중에 실차/노이즈 대응이 필요해지면
-//   mpc_controller의 GPS+IMU 융합 방식으로 교체하면 됨.
+//
+// ego 위치는 mpc_controller와 동일하게 GPS(+IMU)를 wgs84ToENU로 변환해서
+// 얻는다. 처음엔 "Planner 알고리즘 자체 검증"이 목적이니 EgoVehicleStatus의
+// position/heading을 그대로 쓰면 된다고 생각했으나, 실제 MORAI 연동 중
+// EgoVehicleStatus.position이 path.txt/ref.txt가 쓰는 GPS-ENU 좌표계와
+// 전혀 다른(MORAI 자체 월드) 좌표계라는 게 실측으로 드러났다 — RefLine 투영
+// 결과 d가 수십~수백 미터로 튀는 버그의 원인이었음. mpc_controller는 애초에
+// EgoVehicleStatus.position을 쓴 적이 없어서(GPS만 사용) 이 불일치가
+// 지금까지 드러나지 않았다. 그래서 이제 mpc_controller와 완전히 동일한
+// GPS+IMU 변환 방식을 쓴다 (같은 ref.txt를 공유해서 원점도 동일하게 맞춤).
 // =========================================================
 
 #include <mutex>
@@ -33,10 +38,13 @@
 
 #include <ros/ros.h>
 #include <std_msgs/Float32MultiArray.h>
+#include <sensor_msgs/Imu.h>
 #include <morai_msgs/EgoVehicleStatus.h>
 #include <morai_msgs/ObjectStatusList.h>
+#include <morai_msgs/GPSMessage.h>
 
 #include "global/global.hpp"
+#include "global/utils.hpp"
 #include "frenet/ref_line.hpp"
 #include "frenet/path_generator.hpp"
 #include "frenet/cost.hpp"
@@ -47,7 +55,12 @@
 
 std::mutex g_ego_mutex;
 CartesianState g_ego_cs{0, 0, 0, 0, 0, 0};
-bool g_ego_received = false;
+bool g_ego_received = false;   // velocity/acceleration(EgoVehicleStatus) 수신 여부
+bool g_ego_pos_received = false;  // 위치(GPS) 수신 여부
+bool g_ego_yaw_received = false;  // heading(IMU) 수신 여부
+
+CoordinateReference g_coord_ref{};
+bool g_coord_ref_initialized = false;
 
 std::mutex g_obstacle_mutex;
 std::vector<ObjectInfo> g_obstacles;
@@ -86,27 +99,71 @@ ObjectInfo ConvertObjectStatus(const morai_msgs::ObjectStatus& obj) {
 }
 
 // =========================================================
-// 콜백: 자차 상태
+// 콜백: 자차 위치 (GPS) — mpc_controller/node/mpc_node.cpp의 CBGps와 동일한 방식.
+// path.txt/ref.txt가 이 변환(wgs84ToENU)으로 만들어졌으므로, 반드시 같은
+// 변환을 거쳐야 RefLine과 좌표계가 일치한다 (EgoVehicleStatus.position은
+// MORAI 자체 월드좌표라 좌표계가 다름 — 실측으로 확인된 버그, 그래서 GPS로 교체).
+// =========================================================
+void CBGps(const morai_msgs::GPSMessage::ConstPtr& msg) {
+    if (!msg) return;
+    if (!g_coord_ref_initialized) {
+        // ref.txt를 로드하지 못했을 때의 대비책: 첫 GPS fix를 원점으로 자동 초기화.
+        // (정상적으로는 main()에서 ref.txt를 미리 로드해 mpc_controller와 원점을 맞춘다)
+        g_coord_ref.lat0 = msg->latitude;
+        g_coord_ref.lon0 = msg->longitude;
+        g_coord_ref.h0   = msg->altitude;
+        wgs84ToECEF(g_coord_ref.lat0, g_coord_ref.lon0, g_coord_ref.h0,
+                    g_coord_ref.x0_ecef, g_coord_ref.y0_ecef, g_coord_ref.z0_ecef);
+        g_coord_ref_initialized = true;
+        ROS_WARN("[FrenetPlanner] ref.txt 없이 첫 GPS fix로 좌표 원점 자동 초기화됨 "
+                 "(mpc_controller와 원점이 다를 수 있음 — ref.txt 공유 설정 확인 권장)");
+    }
+
+    double x, y, z;
+    wgs84ToENU(msg->latitude, msg->longitude, msg->altitude, g_coord_ref, x, y, z);
+
+    std::lock_guard<std::mutex> lk(g_ego_mutex);
+    g_ego_cs.x = x;
+    g_ego_cs.y = y;
+    g_ego_pos_received = true;
+}
+
+// =========================================================
+// 콜백: 자차 heading (IMU) — mpc_controller의 CBImu와 동일.
+// =========================================================
+void CBImu(const sensor_msgs::Imu::ConstPtr& msg) {
+    if (!msg) return;
+    const double yaw = quaternionToYaw(msg->orientation.x, msg->orientation.y,
+                                        msg->orientation.z, msg->orientation.w);
+    std::lock_guard<std::mutex> lk(g_ego_mutex);
+    g_ego_cs.yaw = yaw;
+    g_ego_yaw_received = true;
+}
+
+// =========================================================
+// 콜백: 자차 속도/가속도 (EgoVehicleStatus) — mpc_controller의 CBEgoState와
+// 동일하게 velocity.x/acceleration.x를 차량 전방(body-frame) 스칼라로 그대로
+// 사용한다 (world-frame으로 보고 heading에 투영하는 게 아님 — mpc_controller가
+// 이미 이렇게 검증된 방식이라 그대로 따름).
 // =========================================================
 void CBEgoState(const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
     if (!msg) return;
 
-    const double yaw = MoraiHeadingToYawRad(msg->heading);
-
     std::lock_guard<std::mutex> lk(g_ego_mutex);
-    g_ego_cs.x = msg->position.x;
-    g_ego_cs.y = msg->position.y;
-    g_ego_cs.yaw = yaw;
-    // world-frame velocity/acceleration을 heading 방향으로 투영해서
-    // 종방향 스칼라 v, a로 사용 (frenet_converter의 CartesianState 정의와 일치)
-    g_ego_cs.v = msg->velocity.x * std::cos(yaw) + msg->velocity.y * std::sin(yaw);
-    g_ego_cs.a = msg->acceleration.x * std::cos(yaw) + msg->acceleration.y * std::sin(yaw);
-    // TODO(추후 개발 필요): 자차 곡률(kappa)은 EgoVehicleStatus가 직접 제공하지
-    // 않는다. wheel_angle과 차량 wheelbase를 알면 kappa = tan(wheel_angle)/wheelbase
-    // 로 근사 가능하지만, 지금 프로젝트엔 wheelbase 파라미터가 아직 없어 0으로
-    // 둔다. 이 값은 CartesianToFrenet의 d''(d_pprime) 계산에만 쓰이고, 매
-    // planning cycle마다 그 시점의 실제 상태로 다시 계산되므로 오차가 누적되지
-    // 않는다 (재계획 시작점 한 스텝에만 국한된 근사 오차).
+    g_ego_cs.v = msg->velocity.x;
+    g_ego_cs.a = msg->acceleration.x;
+    // TODO(추후 개발 필요, 알려진 한계 — MORAI 실측으로 증상 확인됨): 자차
+    // 곡률(kappa)은 EgoVehicleStatus가 직접 제공하지 않아 0으로 근사한다.
+    // 급조향 순간엔 실제 곡률이 0이 아닌데 0으로 잘못 가정하면, 그 순간의
+    // CartesianToFrenet 시작상태 d_dd(횡가속도)가 실제와 어긋나게 계산돼서,
+    // 그 사이클에 생성되는 모든 lateral 후보가 "물리적으로 불가능한 저크"로
+    // 판정되어 한 사이클만 전부 무효화(candidates=0)됐다가 다음 사이클에
+    // 정상 복구되는 현상이 실제로 관측됨(코너 부근/조향이 급하게 바뀔 때,
+    // 매번 1사이클 내 자연 회복 — 여러 사이클 연속으로 이어진 적은 없음).
+    // 근본 해결: wheel_angle과 차량 wheelbase 파라미터를 추가해서
+    // kappa = tan(wheel_angle)/wheelbase 로 근사하면 이 순간적 오차가 없어짐.
+    // 지금은 1사이클 내 자연 복구되고 planner가 아직 실제 제어에 연결되지
+    // 않은 상태라 우선순위를 낮춰 보류함.
     g_ego_cs.kappa = 0.0;
 
     g_ego_received = true;
@@ -168,8 +225,9 @@ void PlanningLoop(const ros::TimerEvent&) {
         ROS_WARN_THROTTLE(1.0, "[FrenetPlanner] Waiting for reference line (waypoints)...");
         return;
     }
-    if (!g_ego_received) {
-        ROS_WARN_THROTTLE(1.0, "[FrenetPlanner] Waiting for ego state...");
+    if (!g_ego_received || !g_ego_pos_received || !g_ego_yaw_received) {
+        ROS_WARN_THROTTLE(1.0, "[FrenetPlanner] Waiting for ego state (gps=%d imu=%d status=%d)...",
+                           g_ego_pos_received, g_ego_yaw_received, g_ego_received);
         return;
     }
 
@@ -279,6 +337,28 @@ bool LoadReferenceLine(const std::string& path, RefLine& out_ref) {
 }
 
 // =========================================================
+// ref.txt("lat0 lon0 h0") -> CoordinateReference 로드
+// mpc_controller/global/parameter_loader.cpp의 ref 로딩과 동일한 포맷.
+// 반드시 mpc_controller와 "같은" ref.txt를 가리켜야 두 노드의 좌표 원점이
+// 일치한다 (원점이 다르면 서로 다른 ENU 좌표계가 되어 RefLine 투영이 어긋남).
+// =========================================================
+bool LoadRefPoint(const std::string& path, CoordinateReference& out_ref) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        ROS_WARN("[FrenetPlanner] Failed to open ref file: %s (첫 GPS fix로 자동 초기화됨)",
+                 path.c_str());
+        return false;
+    }
+
+    file >> out_ref.lat0 >> out_ref.lon0 >> out_ref.h0;
+    wgs84ToECEF(out_ref.lat0, out_ref.lon0, out_ref.h0,
+                out_ref.x0_ecef, out_ref.y0_ecef, out_ref.z0_ecef);
+    ROS_INFO("[FrenetPlanner] Ref point: lat=%.8f lon=%.8f h=%.3f",
+             out_ref.lat0, out_ref.lon0, out_ref.h0);
+    return true;
+}
+
+// =========================================================
 // params.yaml -> 각 config struct 로드 (config/params.yaml 키 구조와 동일)
 // =========================================================
 void LoadParams(ros::NodeHandle& pnh) {
@@ -344,9 +424,19 @@ int main(int argc, char** argv) {
         g_ref_loaded = true;
     }
 
-    // TODO(검증 필요): 아래 두 토픽 이름은 MORAI-ROS 브릿지 launch 설정과
+    // path.txt(waypoint_file)와 같은 좌표계를 쓰려면 그걸 만든 것과 동일한
+    // ref.txt(GPS 원점)를 로드해야 한다 — mpc_controller와 공유하는 파일을 그대로 가리킴.
+    std::string ref_file;
+    pnh.param<std::string>("ref_file", ref_file, "");
+    if (!ref_file.empty() && LoadRefPoint(ref_file, g_coord_ref)) {
+        g_coord_ref_initialized = true;
+    }
+
+    // TODO(검증 필요): 아래 토픽 이름들은 MORAI-ROS 브릿지 launch 설정과
     // 반드시 대조해서 확인할 것 (이 저장소엔 launch 파일이 없어 코드만으로는
-    // 확정할 수 없음). /Ego_topic은 mpc_controller가 이미 쓰고 있어 확실함.
+    // 확정할 수 없음). /Ego_topic, /gps, /imu는 mpc_controller가 이미 쓰고 있어 확실함.
+    ros::Subscriber gps_sub = nh.subscribe("/gps", 1, CBGps);
+    ros::Subscriber imu_sub = nh.subscribe("/imu", 1, CBImu);
     ros::Subscriber ego_sub = nh.subscribe("/Ego_topic", 1, CBEgoState);
     ros::Subscriber obj_sub = nh.subscribe("/Object_topic", 1, CBObjects);
 
@@ -356,7 +446,7 @@ int main(int argc, char** argv) {
     pnh.param<double>("planner/planning_frequency", planning_hz, planning_hz);
     ros::Timer timer = nh.createTimer(ros::Duration(1.0 / planning_hz), PlanningLoop);
 
-    ROS_INFO("[FrenetPlanner] Subscribed: /Ego_topic /Object_topic");
+    ROS_INFO("[FrenetPlanner] Subscribed: /gps /imu /Ego_topic /Object_topic");
     ROS_INFO("[FrenetPlanner] Publishing: /frenet_planner/trajectory @ %.1f Hz", planning_hz);
     ROS_INFO("========================================");
 

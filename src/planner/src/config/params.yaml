@@ -8,6 +8,11 @@
 # 같은 글로벌 경로를 두 노드가 나눠서 쓰도록 mpc_controller/src/config/path.txt를 그대로 가리킴.
 waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path.txt"
 
+# path.txt를 만들 때 쓴 GPS 원점("lat0 lon0 h0"). mpc_controller와 반드시 같은
+# 파일을 가리켜야 두 노드의 ENU 좌표 원점이 일치한다 (원점이 다르면 서로 다른
+# 좌표계가 되어 RefLine 투영이 어긋남 — 실측으로 확인된 버그의 원인).
+ref_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/ref.txt"
+
 planner:
 
   # FSM이 아직 없을 때 쓰는 값들 (검증 노드 전용, 논문/구조체와 무관)
