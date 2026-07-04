@@ -28,16 +28,19 @@ planner:
   kinematic_limits:
     max_lateral_accel: 3.0        # |d̈| 허용치 [m/s^2]
     max_longitudinal_accel: 3.0   # |s̈| 허용치 [m/s^2]
-    max_curvature: 0.153          # |kappa_x| 허용치 [1/m] (= 1 / 최소 회전반경).
-                                   # 2023 아이오닉5 최소회전반경 5.87m -> kappa_max=1/5.87=0.1704,
-                                   # 여기에 10% 안전마진(속도 상승 시 필요한 여유 반영)을 적용한 값.
+    max_curvature: 0.1704         # |kappa_x| 허용치 [1/m] (= 1 / 최소 회전반경).
+                                   # 2023 아이오닉5 최소회전반경 5.87m -> kappa_max=1/5.87=0.1704, 마진 없이 그대로 사용.
+                                   # (10% 안전마진을 뒀을 때(0.153) K-city 로터리 구간에서 8.8초 연속
+                                   #  "No valid candidate"가 발생함을 오프라인 시뮬레이션으로 확인함.
+                                   #  마진을 걷어내면 4.9초로 줄어듦 — 근본 해결은 아니고 완화일 뿐이며,
+                                   #  대회 정식 GlobalPath가 나오면 이 구간 자체가 바뀔 수 있어 지금은 이렇게 둠.)
 
   # --- CostWeights (cost.hpp) ---------------------------------
   # Prop.1의 C = kj*Jt + kt*g(T) + kp*h(p1) 을 실제로 구체화하는 가중치.
   cost_weights:
     kj: 1.0        # jerk 적분항 가중치 (공통)
     kt: 1.0        # 시간항 가중치 (공통)
-    kd: 1.0        # lateral 종료위치 가중치 (kd*d1^2)
+    kd: 1.0        # lateral 종료위치 가중치 (kd*d1^2) - 기본 가중치에서 kd가 상대적으로 너무 작아서 키워줘야함
     ks: 1.0        # longitudinal 목표위치 가중치 (ks*delta_s^2)
     ks_dot: 1.0    # longitudinal 목표속도 가중치 (ks_dot*delta_s_dot^2)
     klat: 1.0      # Sec.VI: C_tot = klat*C_lat + klon*C_lon

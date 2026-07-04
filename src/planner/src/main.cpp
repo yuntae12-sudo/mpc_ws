@@ -298,7 +298,7 @@ void LoadParams(ros::NodeHandle& pnh) {
 
     pnh.param<double>("planner/kinematic_limits/max_lateral_accel",      g_limits.max_lateral_accel,      3.0);
     pnh.param<double>("planner/kinematic_limits/max_longitudinal_accel", g_limits.max_longitudinal_accel, 3.0);
-    pnh.param<double>("planner/kinematic_limits/max_curvature",          g_limits.max_curvature,          0.153);
+    pnh.param<double>("planner/kinematic_limits/max_curvature",          g_limits.max_curvature,          0.1704);
 
     pnh.param<double>("planner/cost_weights/kj",     g_cost_weights.kj,     1.0);
     pnh.param<double>("planner/cost_weights/kt",     g_cost_weights.kt,     1.0);
