@@ -13,6 +13,8 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   geometry_msgs
   morai_msgs
+  visualization_msgs
+  tf2_ros
 )
 
 ## System dependencies are found with CMake's conventions
@@ -105,7 +107,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-  CATKIN_DEPENDS roscpp rospy std_msgs geometry_msgs morai_msgs
+  CATKIN_DEPENDS roscpp rospy std_msgs geometry_msgs morai_msgs visualization_msgs tf2_ros
 )
 
 ###########
@@ -142,6 +144,7 @@ add_executable(frenet_planner_node
   src/fsm/command.cpp
   src/global/data_logger.cpp
   src/global/utils.cpp
+  src/visualization/visualization.cpp
 )
 
 add_dependencies(frenet_planner_node ${catkin_EXPORTED_TARGETS})

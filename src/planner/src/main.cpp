@@ -50,6 +50,7 @@
 #include "frenet/cost.hpp"
 #include "frenet/collision_checker.hpp"
 #include "math/frenet_converter.hpp"
+#include "visualization/visualization.hpp"
 
 // ---- 전역 상태 (mpc_controller/node/mpc_node.cpp와 동일한 컨벤션) ----
 
@@ -76,6 +77,9 @@ CollisionCheckConfig g_collision_cfg{};
 double g_target_speed = 8.0;   // FSM 없을 때 쓰는 고정 목표속도 [m/s]
 
 ros::Publisher g_traj_pub;
+ros::Publisher g_marker_pub;
+std::string g_viz_frame_id = "map";       // rviz Fixed Frame과 일치해야 함 (params.yaml에서 로드)
+std::string g_ego_frame_id = "ego_vehicle";  // rviz 카메라가 따라갈 tf 프레임 이름
 
 double MoraiHeadingToYawRad(double heading_deg) {
     return heading_deg * M_PI / 180.0;
@@ -265,6 +269,19 @@ void PlanningLoop(const ros::TimerEvent&) {
     EvaluateCosts(candidates, g_cost_weights);
 
     const FrenetPath* best = SelectBestPath(candidates);
+
+    // rviz 시각화는 best 유무와 무관하게 매 사이클 발행한다 — 실패한 순간
+    // (후보가 전부 빨갛게 무효화되는 것)도 그대로 눈으로 볼 수 있어야 디버깅에 쓸모있다.
+    visualization_msgs::MarkerArray markers;
+    for (auto& m : BuildCandidateMarkers(candidates, g_ref, best, g_viz_frame_id).markers)
+        markers.markers.push_back(std::move(m));
+    markers.markers.push_back(BuildRefLineMarker(g_ref, start.s, 40.0, g_viz_frame_id, 0));
+    markers.markers.push_back(BuildEgoMarker(ego_snap, g_vehicle_shape, g_viz_frame_id, 0));
+    BroadcastEgoTransform(ego_snap, g_viz_frame_id, g_ego_frame_id);
+    for (auto& m : BuildObstacleMarkers(obstacles_snap, g_viz_frame_id).markers)
+        markers.markers.push_back(std::move(m));
+    g_marker_pub.publish(markers);
+
     if (!best) {
         ROS_WARN_THROTTLE(1.0, "[FrenetPlanner] No valid candidate this cycle (%zu generated)",
                            candidates.size());
@@ -414,6 +431,11 @@ int main(int argc, char** argv) {
     ROS_INFO("========================================");
 
     LoadParams(pnh);
+    pnh.param<std::string>("planner/viz_frame_id", g_viz_frame_id, "map");
+    pnh.param<std::string>("planner/ego_frame_id", g_ego_frame_id, "ego_vehicle");
+
+    ros::Publisher global_path_pub =
+        nh.advertise<visualization_msgs::MarkerArray>("/frenet_planner/global_path", 1, /*latch=*/true);
 
     std::string waypoint_file;
     pnh.param<std::string>("waypoint_file", waypoint_file, "");
@@ -422,6 +444,12 @@ int main(int argc, char** argv) {
                    "but will not publish until a valid waypoint_file param is set.");
     } else {
         g_ref_loaded = true;
+
+        // 전역 경로는 주행 중 안 바뀌므로 매 사이클이 아니라 여기서 딱 한 번만
+        // 만들어서 latched 토픽으로 발행한다 (rviz가 나중에 켜져도 마지막 값을 받음).
+        visualization_msgs::MarkerArray global_path_markers;
+        global_path_markers.markers.push_back(BuildGlobalPathMarker(g_ref, g_viz_frame_id, 0));
+        global_path_pub.publish(global_path_markers);
     }
 
     // path.txt(waypoint_file)와 같은 좌표계를 쓰려면 그걸 만든 것과 동일한
@@ -441,6 +469,7 @@ int main(int argc, char** argv) {
     ros::Subscriber obj_sub = nh.subscribe("/Object_topic", 1, CBObjects);
 
     g_traj_pub = nh.advertise<std_msgs::Float32MultiArray>("/frenet_planner/trajectory", 1);
+    g_marker_pub = nh.advertise<visualization_msgs::MarkerArray>("/frenet_planner/markers", 1);
 
     double planning_hz = 10.0;  // 논문 Sec.VIII: 100ms 고정 주기
     pnh.param<double>("planner/planning_frequency", planning_hz, planning_hz);

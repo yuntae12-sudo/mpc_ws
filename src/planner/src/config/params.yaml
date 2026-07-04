@@ -17,6 +17,17 @@ planner:
 
   # FSM이 아직 없을 때 쓰는 값들 (검증 노드 전용, 논문/구조체와 무관)
   planning_frequency: 10.0     # 플래닝 루프 주기 [Hz] (논문 Sec.VIII: 100ms)
+  viz_frame_id: "map"          # rviz MarkerArray의 frame_id. 이 프로젝트는 별도
+                                # tf(map->base_link 등)를 안 쓰므로, rviz의
+                                # Global Options > Fixed Frame에 여기와 똑같이
+                                # "map"을 직접 입력해줘야 함 (tf 트리 없어도 됨,
+                                # Marker header.frame_id와 Fixed Frame 문자열만
+                                # 일치하면 그대로 표시됨).
+  ego_frame_id: "ego_vehicle"  # 매 사이클 발행하는 map->ego_vehicle tf 이름.
+                                # rviz Views 패널에서 카메라 타입을 Orbit/XYOrbit
+                                # 등으로 바꾸고 Target Frame에 이 이름을 넣으면
+                                # 카메라가 자차를 자동으로 따라감 (순수 시각화용
+                                # tf라 planner 알고리즘 자체는 이 값을 안 씀).
   default_target_speed: 8.0    # PlannerCommand.target_speed 고정값 [m/s]
 
   # --- PathGeneratorConfig (path_generator.hpp) ---------------
