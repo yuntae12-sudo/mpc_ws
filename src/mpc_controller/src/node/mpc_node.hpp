@@ -11,8 +11,6 @@
 void CBGps     (const morai_msgs::GPSMessage::ConstPtr& msg);
 void CBImu     (const sensor_msgs::Imu::ConstPtr& msg);
 void CBEgoState(const morai_msgs::EgoVehicleStatus::ConstPtr& msg);
-void CBCostmap (const nav_msgs::OccupancyGrid::ConstPtr& msg);
-void CBLanePath(const std_msgs::Float32MultiArray::ConstPtr& msg);
 
 // ========================================
 // 제어 루프 (Controller 역할만)

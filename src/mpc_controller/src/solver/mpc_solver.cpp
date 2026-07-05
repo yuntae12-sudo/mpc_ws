@@ -68,7 +68,6 @@ static double evalCost(
     const MPCState&                     x0,
     const std::vector<MPCControl>&      U,
     const ReferencePath&                ref,
-    const CostmapInfo&                  costmap,
     const MPCControl&                   prev_control,
     const MPCParams&                    params,
     const std::vector<LinearizedModel>* models   = nullptr,
@@ -83,7 +82,7 @@ static double evalCost(
         traj = predictTrajectory(x0, U, params.dt, params.wheelbase,
                                  params.vel_min, params.vel_max);
     }
-    double c = computeTotalCost(traj, U, ref, costmap, prev_control, params);
+    double c = computeTotalCost(traj, U, ref, prev_control, params);
     if (out_traj) *out_traj = std::move(traj);
     return c;
 }
@@ -103,7 +102,6 @@ static std::vector<MPCControl> computeGradient(
     const std::vector<MPCControl>&      U,
     const std::vector<LinearizedModel>& models,
     const ReferencePath&                ref,
-    const CostmapInfo&                  costmap,
     const MPCControl&                   prev_control,
     const MPCParams&                    params)
 {
@@ -116,16 +114,16 @@ static std::vector<MPCControl> computeGradient(
         std::vector<MPCControl> U_p = U, U_m = U;
         U_p[k].delta += eps;
         U_m[k].delta -= eps;
-        grad[k].delta = (evalCost(x0, U_p, ref, costmap, prev_control, params, &models)
-                       - evalCost(x0, U_m, ref, costmap, prev_control, params, &models))
+        grad[k].delta = (evalCost(x0, U_p, ref, prev_control, params, &models)
+                       - evalCost(x0, U_m, ref, prev_control, params, &models))
                        / (2.0 * eps);
 
         // d/d_accel
         U_p = U; U_m = U;
         U_p[k].accel += eps;
         U_m[k].accel -= eps;
-        grad[k].accel = (evalCost(x0, U_p, ref, costmap, prev_control, params, &models)
-                       - evalCost(x0, U_m, ref, costmap, prev_control, params, &models))
+        grad[k].accel = (evalCost(x0, U_p, ref, prev_control, params, &models)
+                       - evalCost(x0, U_m, ref, prev_control, params, &models))
                        / (2.0 * eps);
     }
     return grad;
@@ -140,7 +138,6 @@ static std::vector<MPCControl> computeGradient(
 MPCResult solveMPC(
     const MPCState&                x0,
     const ReferencePath&           ref,
-    const CostmapInfo&             costmap,
     const MPCControl&              prev_control,
     const std::vector<MPCControl>& warm_start,
     const MPCParams&               params)
@@ -184,14 +181,14 @@ MPCResult solveMPC(
     // ====================================
     // 3) 최적화 루프
     // ====================================
-    double cost_cur = evalCost(x0, U, ref, costmap, prev_control, params, &models);
+    double cost_cur = evalCost(x0, U, ref, prev_control, params, &models);
     double lr = params.lr_init;
 
     for (int iter = 0; iter < params.max_iterations; ++iter) {
 
         // ---- gradient 계산 (선형 모델 기반) ----
         std::vector<MPCControl> grad = computeGradient(
-            x0, U, models, ref, costmap, prev_control, params);
+            x0, U, models, ref, prev_control, params);
 
         // 수렴 체크
         double grad_norm2 = 0.0;
@@ -218,7 +215,7 @@ MPCResult solveMPC(
             // U_old 기준 models로 U_new cost 평가 시 선형화 오차 누적 방지
             std::vector<LinearizedModel> models_new = buildLTVModels(
                 x0, U_new, params.dt, params.wheelbase, params.vel_min, params.vel_max);
-            cost_new = evalCost(x0, U_new, ref, costmap, prev_control, params, &models_new);
+            cost_new = evalCost(x0, U_new, ref, prev_control, params, &models_new);
 
             if (cost_new < cost_cur - 1e-4 * alpha * grad_norm2) {
                 accepted = true;
@@ -249,7 +246,7 @@ MPCResult solveMPC(
     //    최종 trajectory는 비선형 모델로 다시 계산 (근사 오차 제거)
     // ====================================
     std::vector<MPCState> traj;
-    evalCost(x0, U, ref, costmap, prev_control, params, nullptr, &traj);
+    evalCost(x0, U, ref, prev_control, params, nullptr, &traj);
 
     result.controls         = U;
     result.predicted_states = traj;

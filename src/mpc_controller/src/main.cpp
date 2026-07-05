@@ -31,10 +31,8 @@ int main(int argc, char** argv)
     ros::Subscriber gps_sub      = nh.subscribe("/gps",         1, CBGps);
     ros::Subscriber imu_sub      = nh.subscribe("/imu",         1, CBImu);
     ros::Subscriber ego_sub      = nh.subscribe("/Ego_topic",   1, CBEgoState);
-    ros::Subscriber costmap_sub  = nh.subscribe("/costmap",     1, CBCostmap);
-    ros::Subscriber lane_sub     = nh.subscribe("/lane/path",   1, CBLanePath);
 
-    ROS_INFO("[MPC] Subscribed: /gps /imu /Ego_topic /costmap /lane/path");
+    ROS_INFO("[MPC] Subscribed: /gps /imu /Ego_topic");
 
     // 발행자
     cmd_pub = nh.advertise<morai_msgs::CtrlCmd>("/ctrl_cmd", 1);

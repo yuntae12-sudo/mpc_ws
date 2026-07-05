@@ -14,11 +14,7 @@ void CBGps(const morai_msgs::GPSMessage::ConstPtr& msg)
 {
     if (!msg) return;
 
-    if (msg->status == 0) {
-        gps_jamming_perception = true;
-        return;
-    }
-    gps_jamming_perception = false;
+    if (msg->status == 0) return;  // GPS jamming/무효 fix
 
     if (!coord_ref_initialized) {
         coord_ref.lat0 = msg->latitude;
@@ -54,24 +50,6 @@ void CBEgoState(const morai_msgs::EgoVehicleStatus::ConstPtr& msg)
     if (!msg) return;
     std::lock_guard<std::mutex> lk(ego_mutex);
     ego.vx = msg->velocity.x;
-}
-
-void CBCostmap(const nav_msgs::OccupancyGrid::ConstPtr& msg)
-{
-    if (!msg) return;
-    std::lock_guard<std::mutex> lk(costmap_mutex);
-    costmap_info.msg        = msg;
-    costmap_info.origin_x   = msg->info.origin.position.x;
-    costmap_info.origin_y   = msg->info.origin.position.y;
-    costmap_info.resolution = msg->info.resolution;
-    costmap_info.width      = static_cast<int>(msg->info.width);
-    costmap_info.height     = static_cast<int>(msg->info.height);
-    new_costmap_received = true;
-}
-
-void CBLanePath(const std_msgs::Float32MultiArray::ConstPtr& /*msg*/)
-{
-    // 현재 미사용 (CSV 기반 waypoints 가 권위)
 }
 
 // ========================================
@@ -120,15 +98,8 @@ void controlLoop(const ros::TimerEvent&)
         return;
     }
 
-    // 3) costmap 스냅샷
-    CostmapInfo costmap_snap;
-    {
-        std::lock_guard<std::mutex> lk(costmap_mutex);
-        costmap_snap = costmap_info;
-    }
-
-    // 4) MPC 풀기 (Controller 역할만)
-    MPCResult res = solveMPC(ego_snap, ref, costmap_snap,
+    // 3) MPC 풀기 (Controller 역할만)
+    MPCResult res = solveMPC(ego_snap, ref,
                              last_control, g_warm_start, mpc_params);
 
     if (!res.success) {

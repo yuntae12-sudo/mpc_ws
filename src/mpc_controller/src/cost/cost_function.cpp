@@ -60,47 +60,12 @@ double computeControlRateCost(const MPCControl& u_prev, const MPCControl& u_cur,
 }
 
 // ========================================
-// 장애물
-// ========================================
-double computeObstacleCost(const MPCState& state,
-                           const CostmapInfo& costmap,
-                           double weight,
-                           double lethal_threshold)
-{
-    if (!costmap.msg || costmap.resolution <= 1e-9 ||
-        costmap.width <= 0 || costmap.height <= 0)
-        return 0.0;
-
-    int gx = static_cast<int>(std::floor((state.x - costmap.origin_x) / costmap.resolution));
-    int gy = static_cast<int>(std::floor((state.y - costmap.origin_y) / costmap.resolution));
-    if (gx < 0 || gx >= costmap.width || gy < 0 || gy >= costmap.height)
-        return 0.0;
-
-    int idx = gy * costmap.width + gx;
-    if (idx < 0 || idx >= static_cast<int>(costmap.msg->data.size()))
-        return 0.0;
-
-    int8_t raw = costmap.msg->data[idx];
-    double v;
-    if (raw < 0) v = 30.0;
-    else         v = static_cast<double>(raw);
-    if (v < 0.0) v = 0.0;
-    if (v > 100.0) v = 100.0;
-
-    double norm = v / 100.0;
-    double soft = norm * norm;
-    double hard = (v >= lethal_threshold) ? 100.0 * (v - lethal_threshold + 10.0) : 0.0;
-    return weight * (soft + hard);
-}
-
-// ========================================
 // trajectory 전체 cost
 // ========================================
 double computeTotalCost(
     const std::vector<MPCState>&   states,
     const std::vector<MPCControl>& controls,
     const ReferencePath&           ref,
-    const CostmapInfo&             costmap,
     const MPCControl&              prev_control,
     const MPCParams&               params)
 {
@@ -135,8 +100,6 @@ double computeTotalCost(
         total += computePathErrorCost   (st, ref, ref_idx, params.weight_path_error);
         total += computeHeadingErrorCost(st, ref, ref_idx, params.weight_heading_error);
         total += computeSpeedErrorCost  (st, v_target,     params.weight_speed_error);
-        total += computeObstacleCost    (st, costmap, params.weight_obstacle,
-                                         params.lethal_cost_threshold);
 
         const MPCControl& u_cur = controls[i];
         // steer effort: weight_control / accel effort: weight_control * 0.5
@@ -167,8 +130,6 @@ double computeTotalCost(
         total += computePathErrorCost   (st, ref, ref_idx, params.weight_terminal);
         total += computeHeadingErrorCost(st, ref, ref_idx, params.weight_terminal * 0.5);
         total += computeSpeedErrorCost  (st, v_target,     params.weight_terminal * 0.2);
-        total += computeObstacleCost    (st, costmap, params.weight_obstacle,
-                                         params.lethal_cost_threshold);
     }
 
     return total;

@@ -16,7 +16,6 @@ cost:
   speed_error: 2.0        # 3.0→2.0: 급정거 방지
   control: 1.25            # 2.0→1.0: steer effort 페널티 완화
   control_rate: 10.0      # 조향 변화율 억제 (accel은 cost_function 내부에서 *0.05)
-  obstacle: 10.0
   terminal: 8.0
 
 solver:
@@ -35,9 +34,6 @@ constraints:
   velocity:
     min: 0.0
     max: 60.0
-  obstacle:
-    safety_margin: 0.5
-    costmap_threshold: 90.0
 
 planning:
   ref_window: 700

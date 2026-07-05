@@ -19,17 +19,11 @@ double computeControlEffortCost(const MPCControl& u, double weight_steer,
 double computeControlRateCost(const MPCControl& u_prev, const MPCControl& u_cur,
                               double weight);
 
-double computeObstacleCost(const MPCState& state,
-                           const CostmapInfo& costmap,
-                           double weight,
-                           double lethal_threshold);
-
 // 전체 trajectory 의 cost
 double computeTotalCost(
     const std::vector<MPCState>&   states,
     const std::vector<MPCControl>& controls,
     const ReferencePath&           ref,
-    const CostmapInfo&             costmap,
     const MPCControl&              prev_control,  // 이전 사이클 마지막 명령 (rate cost용)
     const MPCParams&               params);
 

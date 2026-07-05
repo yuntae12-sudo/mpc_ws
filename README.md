@@ -80,4 +80,6 @@ git clone -b beta_drive https://github.com/MORAI-Autonomous/MORAI-ROS_morai_msgs
 아직 리팩토링은 하지 않아서 리팩토링 과정 필요
 추가로 Planner & Controller 통합 과정 필요
 
-Planning 코드 잘 만들었는지 검증 중에 있음
+## 7월 5일 개발 내용
+
+MPC 파일에 남아있던 필요없는 코드들 삭제

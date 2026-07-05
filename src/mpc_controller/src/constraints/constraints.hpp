@@ -12,9 +12,4 @@ void clipControl(MPCControl& u, const MPCParams& params);
 void clipSteeringRate(MPCControl& u_cur, const MPCControl& u_prev,
                       double max_rate, double dt);
 
-// 가용성 체크 (정보용)
-bool isControlFeasible(const MPCControl& u, const MPCParams& params);
-bool isCollisionDetected(const MPCState& s, const CostmapInfo& costmap,
-                          double lethal_threshold);
-
 #endif // MPC_CONSTRAINTS_HPP

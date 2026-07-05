@@ -13,9 +13,7 @@
 #include <array>
 
 #include <ros/ros.h>
-#include <nav_msgs/OccupancyGrid.h>
 #include <sensor_msgs/Imu.h>
-#include <std_msgs/Float32MultiArray.h>
 #include <morai_msgs/CtrlCmd.h>
 #include <morai_msgs/GPSMessage.h>
 #include <morai_msgs/EgoVehicleStatus.h>
@@ -23,12 +21,6 @@
 // ========================================
 // 기본 구조체
 // ========================================
-
-struct Point2D {
-    double x = 0.0;
-    double y = 0.0;
-    double curvature = 0.0;
-};
 
 // CSV에서 로드되는 reference waypoint
 struct Waypoint {
@@ -63,18 +55,6 @@ struct MPCResult {
     double cost = 0.0;
     bool   success = false;
     std::string solver_msg;
-};
-
-// ========================================
-// Costmap 정보 (0..100 occupancy 그대로 보존)
-// ========================================
-struct CostmapInfo {
-    nav_msgs::OccupancyGrid::ConstPtr msg;  // 원본 메시지 보관
-    double origin_x = 0.0;
-    double origin_y = 0.0;
-    double resolution = 0.0;
-    int width = 0;
-    int height = 0;
 };
 
 // ========================================
@@ -114,17 +94,12 @@ struct MPCParams {
     double vel_min          = 0.0;     // [m/s]
     double vel_max          = 30.0;    // [m/s]
 
-    // costmap 관련
-    double obstacle_margin       = 0.5;    // [m]
-    double lethal_cost_threshold = 90.0;   // 0..100
-
     // 비용 가중치
     double weight_path_error    = 5.0;
     double weight_heading_error = 2.0;
     double weight_speed_error   = 0.3;
     double weight_control       = 0.05;
     double weight_control_rate  = 0.5;
-    double weight_obstacle      = 10.0;
     double weight_terminal      = 5.0;   // 마지막 상태 가중치
 
     // 솔버 hyper-params
@@ -142,11 +117,6 @@ struct MPCParams {
     double curve_th_sharp  = 0.01;
     double curve_th_mid    = 0.004;
     double curve_th_mild   = 0.001;
-
-    // 종방향 PID (m/s²  →  normalized accel/brake)
-    double pid_kp = 0.2;
-    double pid_ki = 0.0;
-    double pid_kd = 0.0;
 };
 
 // ========================================
@@ -171,8 +141,6 @@ extern MPCControl last_control;
 
 // 경로/맵 데이터
 extern std::vector<Waypoint> waypoints;
-extern ReferencePath reference_path;
-extern CostmapInfo   costmap_info;
 
 // 파라미터
 extern MPCParams mpc_params;
@@ -180,16 +148,12 @@ extern MPCParams mpc_params;
 // GPS 좌표 reference
 extern CoordinateReference coord_ref;
 extern bool   coord_ref_initialized;
-extern bool   gps_jamming_perception;
 
 // 진단/플래그
-extern bool new_costmap_received;
-extern bool new_reference_path_received;
 extern int  closest_waypoint_idx;
 
 // ROS
 extern ros::Publisher cmd_pub;
-extern std::mutex costmap_mutex;
 extern std::mutex ego_mutex;
 
 // CSV 경로

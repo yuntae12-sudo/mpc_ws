@@ -33,15 +33,6 @@ inline double angleDiff(double a, double b) {
     return normalizeAngle(a - b);
 }
 
-inline double computeDistance(double x1, double y1, double x2, double y2) {
-    double dx = x2 - x1, dy = y2 - y1;
-    return std::sqrt(dx*dx + dy*dy);
-}
-
-inline double computeBearing(double x1, double y1, double x2, double y2) {
-    return normalizeAngle(std::atan2(y2 - y1, x2 - x1));
-}
-
 template<typename T>
 inline T clip(const T& v, const T& lo, const T& hi) {
     return std::max(lo, std::min(v, hi));
