@@ -219,9 +219,6 @@ void CBEgoState(const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
 
 // =========================================================
 // 콜백: 장애물 목록
-// ObjectStatusList의 npc_list/pedestrian_list/obstacle_list 구조가
-// global.hpp의 FsmInput과 이름까지 동일한 건 우연이 아니라, FsmInput이
-// 애초에 이 메시지를 본떠서 설계된 것으로 보인다.
 // =========================================================
 void CBObjects(const morai_msgs::ObjectStatusList::ConstPtr& msg) {
     if (!msg) return;

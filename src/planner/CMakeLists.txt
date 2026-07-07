@@ -139,9 +139,6 @@ add_executable(frenet_planner_node
   src/frenet/collision_checker.cpp
   src/math/polynomial.cpp
   src/math/frenet_converter.cpp
-  src/fsm/transition_condition.cpp
-  src/fsm/fsm.cpp
-  src/fsm/command.cpp
   src/global/data_logger.cpp
   src/global/utils.cpp
   src/visualization/visualization.cpp

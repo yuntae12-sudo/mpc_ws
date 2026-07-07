@@ -1,6 +1,6 @@
 // 현재 상태들에 대해 정의하는 파일 (어떤 주행을 해야하는지 ex: Lane_tracking, ACC 등)
-#ifndef PLANNER_FSM_STATE_HPP
-#define PLANNER_FSM_STATE_HPP
+#ifndef PLANNER_GLOBAL_STATE_HPP
+#define PLANNER_GLOBAL_STATE_HPP
 
 enum BehaviorState {
     LANE_KEEPING,
