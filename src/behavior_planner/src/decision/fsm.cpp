@@ -1,0 +1,2 @@
+#include "behavior_planner/decision/fsm.hpp"
+namespace behavior_planner { BehaviorState Fsm::update(BehaviorType b){if(b==BehaviorType::FOLLOW)return BehaviorState::FOLLOW;if(b==BehaviorType::STOP)return BehaviorState::STOP;if(b==BehaviorType::EMERGENCY_STOP)return BehaviorState::EMERGENCY_STOP;if(b==BehaviorType::LEFT_CHANGE)return BehaviorState::LEFT_CHANGE_PREPARE;if(b==BehaviorType::RIGHT_CHANGE)return BehaviorState::RIGHT_CHANGE_PREPARE;return BehaviorState::KEEP_LANE;} }

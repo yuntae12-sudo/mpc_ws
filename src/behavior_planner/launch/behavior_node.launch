@@ -1,0 +1,21 @@
+<launch>
+  <arg name="dashboard" default="true"/>
+  <arg name="open_dashboard" default="false"/>
+  <arg name="dashboard_port" default="8088"/>
+
+  <node pkg="behavior_planner" type="behavior_node" name="behavior_planner" output="screen">
+    <rosparam command="load" file="$(find behavior_planner)/src/config/behavior_params.yaml" subst_value="true"/>
+  </node>
+
+  <group if="$(arg dashboard)">
+    <node pkg="behavior_planner" type="behavior_dashboard_server.py"
+          name="behavior_dashboard_server" output="screen">
+      <param name="port" value="$(arg dashboard_port)"/>
+      <param name="package_path" value="$(find behavior_planner)"/>
+    </node>
+    <node if="$(arg open_dashboard)" pkg="behavior_planner"
+          type="open_dashboard.py" name="behavior_dashboard_opener" output="screen">
+      <param name="url" value="http://localhost:$(arg dashboard_port)/web/index.html"/>
+    </node>
+  </group>
+</launch>

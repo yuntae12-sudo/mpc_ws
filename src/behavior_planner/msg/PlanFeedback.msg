@@ -1,0 +1,9 @@
+std_msgs/Header header
+bool plan_valid
+uint8 selected_behavior
+string selected_target_link_id
+bool previous_plan_still_valid
+bool lane_change_completed
+float64 lane_change_progress
+float64 selected_cost
+float64 min_collision_margin

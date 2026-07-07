@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Behavior Planner Console</title>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <header>
+    <div><span class="logo">BP</span><b>Behavior Planner Console</b></div>
+    <div class="header-right"><span id="mapStatus" class="chip">MAP LOADING</span><span id="rosStatus" class="chip bad">ROS OFFLINE</span></div>
+  </header>
+  <main>
+    <section class="map-panel">
+      <canvas id="map"></canvas>
+      <div class="toolbar">
+        <button id="fit">전체 지도</button><button id="follow">Ego 추적</button>
+        <label><input id="showNodes" type="checkbox">노드</label>
+        <label><input id="showObjects" type="checkbox" checked>객체</label>
+        <label><input id="showSignals" type="checkbox" checked>신호</label>
+      </div>
+      <div class="legend">
+        <span><i class="route"></i>글로벌 경로</span><span><i class="current"></i>현재 링크</span>
+        <span><i class="required"></i>요구 링크</span><span><i class="target"></i>목표 링크</span>
+        <span><i class="ego"></i>Ego</span><span><i class="npc"></i>차량</span>
+      </div>
+      <div id="cursor" class="cursor"></div>
+    </section>
+    <aside>
+      <section class="hero">
+        <div><span class="label">SELECTED BEHAVIOR</span><h1 id="behaviorName">WAITING</h1><span id="behaviorCode" class="code">–</span></div>
+        <div class="state"><span class="label">FSM STATE</span><strong id="stateName">–</strong><small id="stateCode">–</small></div>
+      </section>
+      <section><h2>Link & Motion</h2><div id="linkGrid" class="kv"></div></section>
+      <section><h2>Front & Risk</h2><div id="riskGrid" class="kv"></div></section>
+      <section><h2>Behavior Enable</h2><div id="enableGrid" class="flags"></div></section>
+      <section><h2>Scores</h2><div id="scores"></div></section>
+      <section><h2>Decision</h2><div id="reasons" class="reasons"></div></section>
+      <section><h2>Selected Link</h2><div id="selectedLink" class="mono muted">지도 링크를 클릭하세요.</div></section>
+      <section><h2>Topic Health</h2><div id="health" class="kv"></div></section>
+    </aside>
+  </main>
+  <script src="dashboard.js?v=signal-overlay-2"></script>
+</body>
+</html>
