@@ -1,43 +1,21 @@
 # =========================================================
 # Frenet Frame Planner 파라미터
-# 각 블록은 코드의 struct와 1:1로 대응된다 (main.cpp의 LoadParams()가
-# ros::NodeHandle(pnh)로 로드해서 해당 struct를 채우는 역할을 함).
+# 각 블록은 코드의 struct와 1:1로 대응됨.
 # =========================================================
-
-# mpc_controller와 동일한 CSV 포맷("x y" 또는 "x,y", 한 줄에 한 점)을 공유.
-# 같은 글로벌 경로를 두 노드가 나눠서 쓰도록 mpc_controller/src/config/path.txt를 그대로 가리킴.
-waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path_route1.txt"
-
-# path.txt를 만들 때 쓴 GPS 원점("lat0 lon0 h0"). mpc_controller와 반드시 같은
-# 파일을 가리켜야 두 노드의 ENU 좌표 원점이 일치한다 (원점이 다르면 서로 다른
-# 좌표계가 되어 RefLine 투영이 어긋남 — 실측으로 확인된 버그의 원인).
-ref_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/ref.txt"
 
 planner:
 
   # FSM이 아직 없을 때 쓰는 값들 (검증 노드 전용, 논문/구조체와 무관)
   planning_frequency: 10.0     # 플래닝 루프 주기 [Hz] (논문 Sec.VIII: 100ms)
-  viz_frame_id: "map"          # rviz MarkerArray의 frame_id. 이 프로젝트는 별도
-                                # tf(map->base_link 등)를 안 쓰므로, rviz의
-                                # Global Options > Fixed Frame에 여기와 똑같이
-                                # "map"을 직접 입력해줘야 함 (tf 트리 없어도 됨,
-                                # Marker header.frame_id와 Fixed Frame 문자열만
-                                # 일치하면 그대로 표시됨).
-  ego_frame_id: "ego_vehicle"  # 매 사이클 발행하는 map->ego_vehicle tf 이름.
-                                # rviz Views 패널에서 카메라 타입을 Orbit/XYOrbit
-                                # 등으로 바꾸고 Target Frame에 이 이름을 넣으면
-                                # 카메라가 자차를 자동으로 따라감 (순수 시각화용
-                                # tf라 planner 알고리즘 자체는 이 값을 안 씀).
-  default_target_speed: 8.0    # PlannerCommand.target_speed 고정값 [m/s]
+  viz_frame_id: "map"          # rviz MarkerArray의 frame_id.
+  ego_frame_id: "ego_vehicle"  # rviz에서 사용, 매 사이클 발행하는 map->ego_vehicle tf 이름.
+
+  default_target_speed: 10.0    # PlannerCommand.target_speed 고정값 [m/s]
 
   # --- PathGeneratorConfig (path_generator.hpp) ---------------
   # 논문 Sec.IV-A/V-A/V-B의 후보 샘플링 격자. 각 항목은 (min, max, step).
   path_generator:
-    lateral_d1:     { min: -3.0, max: 3.0, step: 0.5 }   # d1 후보 범위 [m].
-                                                          # 자차/장애물 폭(각 1.9m)+안전마진 기준 필요
-                                                          # 여유가 약 2.4~2.7m라, 기존 ±1.5m로는 같은
-                                                          # 차선 폭의 정지 장애물을 물리적으로 못 피함
-                                                          # (오프라인 회피 시뮬레이션으로 확인, ±3.0m으로 성공).
+    lateral_d1:     { min: -3.0, max: 3.0, step: 0.5 }   # d1 후보 범위 [m]. 자차/장애물 간 안전거리 때문에 존재하는 값.
     time_horizon:   { min: 2.0,  max: 5.0, step: 1.0 }   # Tj 후보 범위 [s], lateral/longitudinal 공통
     delta_s:        { min: -3.0, max: 3.0, step: 1.0 }   # Δsi 범위 [m] (following/merging/stopping)
     delta_s_dot:    { min: -2.0, max: 2.0, step: 1.0 }   # Δṡi 범위 [m/s] (velocity keeping)
@@ -49,11 +27,6 @@ planner:
     max_lateral_accel: 3.0        # |d̈| 허용치 [m/s^2]
     max_longitudinal_accel: 3.0   # |s̈| 허용치 [m/s^2]
     max_curvature: 0.1704         # |kappa_x| 허용치 [1/m] (= 1 / 최소 회전반경).
-                                   # 2023 아이오닉5 최소회전반경 5.87m -> kappa_max=1/5.87=0.1704, 마진 없이 그대로 사용.
-                                   # (10% 안전마진을 뒀을 때(0.153) K-city 로터리 구간에서 8.8초 연속
-                                   #  "No valid candidate"가 발생함을 오프라인 시뮬레이션으로 확인함.
-                                   #  마진을 걷어내면 4.9초로 줄어듦 — 근본 해결은 아니고 완화일 뿐이며,
-                                   #  대회 정식 GlobalPath가 나오면 이 구간 자체가 바뀔 수 있어 지금은 이렇게 둠.)
 
   # --- CostWeights (cost.hpp) ---------------------------------
   # Prop.1의 C = kj*Jt + kt*g(T) + kp*h(p1) 을 실제로 구체화하는 가중치.
@@ -77,9 +50,7 @@ planner:
   collision_check:
     safety_margin: 0.3        # 기본 안전마진 [m]
     margin_growth_rate: 0.1   # 마진이 시간에 따라 커지는 비율 [m/s]
-    reactive_lookahead: 8.0   # [s] 논문 Sec.VI/Fig.6 "reactive layer" 개념(짧은 T 후보가
-                               # 장애물을 못 보고 통과되는 사각지대 방지). 논문 예시값은 3.0s이지만,
-                               # 이 프로젝트의 target_speed(~5m/s)/time_horizon.max(5s) 기준으로
-                               # 오프라인 회피 시뮬레이션을 해보니 3.0s는 회피기동을 완성하기엔
-                               # 부족했고(감지만 되고 전부 무효화), time_horizon.max + 3s 여유인
-                               # 8.0s에서 실제 회피 성공을 확인함. 속도/차량이 달라지면 재검증 필요.
+    reactive_lookahead: 8.0   # [s] 논문 Sec.VI/Fig.6 "reactive layer" 개념(짧은 T 후보가 장애물을 못 보고 통과되는 사각지대 방지).
+
+
+waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path_route1.txt"

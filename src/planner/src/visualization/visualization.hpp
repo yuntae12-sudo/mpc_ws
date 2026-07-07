@@ -6,7 +6,6 @@
 
 #include <visualization_msgs/MarkerArray.h>
 
-#include "frenet/frenet_types.hpp"
 #include "frenet/ref_line.hpp"
 #include "frenet/collision_checker.hpp"
 #include "math/frenet_converter.hpp"

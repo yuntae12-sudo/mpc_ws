@@ -1,7 +1,6 @@
 #ifndef FRENET_PATH_GENERATOR_HPP
 #define FRENET_PATH_GENERATOR_HPP
 
-#include "frenet/frenet_types.hpp"
 #include "frenet/ref_line.hpp"
 #include "global/global.hpp"
 

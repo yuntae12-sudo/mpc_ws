@@ -1,7 +1,6 @@
 #ifndef FRENET_COLLISION_CHECKER_HPP
 #define FRENET_COLLISION_CHECKER_HPP
 
-#include "frenet/frenet_types.hpp"
 #include "frenet/ref_line.hpp"
 #include "global/global.hpp"
 #include "math/frenet_converter.hpp"

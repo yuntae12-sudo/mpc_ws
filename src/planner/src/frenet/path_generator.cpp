@@ -18,8 +18,6 @@ std::vector<double> SampleRange(const SamplingRange& r) {
 }
 
 // 0부터 T까지 dt 간격의 시간 샘플 (끝점 T는 항상 정확히 포함)
-// lateral/longitudinal이 같은 T, 같은 dt로 호출되면 항상 동일한 배열이 나와야
-// CombineLateralLongitudinal에서 인덱스 대 인덱스로 그대로 합칠 수 있다.
 std::vector<double> SampleTimes(double T, double dt) {
     std::vector<double> times;
     for (double t = 0.0; t < T - 1e-9; t += dt) {
@@ -30,8 +28,6 @@ std::vector<double> SampleTimes(double T, double dt) {
 }
 
 // 횡방향 quintic 하나를 시간 샘플에 맞춰 FrenetPath로 변환 (d, d_d, d_dd만 채움)
-// jerk_cost_lat = Jt(d(t))을 다항식 계수로부터 닫힌 형태로 미리 계산해둔다
-// (계수는 이 함수를 벗어나면 사라지므로 cost.hpp가 나중에 계산할 방법이 없음).
 FrenetPath SampleLateralQuintic(const QuinticPolynomial& poly, const std::vector<double>& times) {
     FrenetPath path;
     path.t = times;
@@ -53,7 +49,6 @@ FrenetPath SampleLateralQuintic(const QuinticPolynomial& poly, const std::vector
 }
 
 // 종방향 quintic 하나를 시간 샘플에 맞춰 FrenetPath로 변환 (s, s_d, s_dd만 채움)
-// delta_s(Δsi)는 호출 측(Following/Stopping/Merging)이 채워준다.
 FrenetPath SampleLongitudinalQuintic(const QuinticPolynomial& poly, const std::vector<double>& times) {
     FrenetPath path;
     path.t = times;
@@ -75,7 +70,6 @@ FrenetPath SampleLongitudinalQuintic(const QuinticPolynomial& poly, const std::v
 }
 
 // 종방향 quartic 하나(velocity keeping)를 시간 샘플에 맞춰 FrenetPath로 변환
-// delta_s_dot(Δṡi)는 호출 측(GenerateVelocityKeepingCandidates)이 채워준다.
 FrenetPath SampleLongitudinalQuartic(const QuarticPolynomial& poly, const std::vector<double>& times) {
     FrenetPath path;
     path.t = times;
@@ -340,12 +334,6 @@ std::vector<FrenetPath> CombineLateralLongitudinal(const std::vector<FrenetPath>
 
 // =========================================================
 // [Sec.VI 3단] 결합 이후 곡률 필터링
-//
-// combined는 lateral을 고속(d(t)) 모드로 생성했으므로 d,d_d,d_dd는 시간미분.
-// FrenetToCartesian은 arc-length 미분(d,d',d'')을 받으므로, 매 샘플마다
-// TimeDerivToArcDeriv로 먼저 변환한다 (frenet_converter.hpp의 "고속 어댑터").
-// s_dot이 0에 가까우면 이 어댑터 자체가 정의역을 벗어나므로(0 나눗셈),
-// 해당 궤적은 곡률 계산 없이 바로 무효 처리한다.
 // =========================================================
 
 void FilterByCurvature(std::vector<FrenetPath>& combined,
