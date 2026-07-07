@@ -22,22 +22,6 @@ struct ObjectInfo {
     double length;
 };
 
-// ========================================
-// 좌표 변환용 (GPS reference point) — mpc_controller/global/global.hpp의
-// CoordinateReference와 동일한 구조. planner도 mpc_controller와 똑같이
-// GPS(+IMU)를 wgs84ToENU로 변환해서 ego 위치를 얻어야 path.txt/RefLine과
-// 같은 좌표계를 공유한다 (EgoVehicleStatus.position을 직접 쓰면 MORAI
-// 자체 월드좌표라 좌표계가 달라 RefLine 투영이 완전히 어긋나는 버그가 있었음 — 실측으로 확인).
-// ========================================
-struct CoordinateReference {
-    double lat0 = 0.0;
-    double lon0 = 0.0;
-    double h0   = 0.0;
-    double x0_ecef = 0.0;
-    double y0_ecef = 0.0;
-    double z0_ecef = 0.0;
-};
-
 struct PlannerCommand {
     // 1. 모드
     BehaviorState mode;

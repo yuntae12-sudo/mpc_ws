@@ -14,9 +14,8 @@ std::vector<Waypoint> waypoints;
 // 파라미터
 MPCParams mpc_params;
 
-// GPS 좌표 reference
-CoordinateReference coord_ref;
-bool coord_ref_initialized = false;
+// /Ego_topic 최초 수신 여부
+bool ego_received = false;
 
 // 진단/플래그
 int  closest_waypoint_idx = 0;
@@ -26,5 +25,4 @@ ros::Publisher cmd_pub;
 std::mutex ego_mutex;
 
 // CSV 경로 기본값 (PlanningControl 과 동일)
-std::string g_ref_file_path      = "src/main/config/ref.txt";
 std::string g_waypoint_file_path = "src/main/config/track_log_recorded_final.csv";

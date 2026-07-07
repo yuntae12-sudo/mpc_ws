@@ -53,7 +53,6 @@ void loadMPCParameters(ros::NodeHandle& pnh)
 
     // CSV 파일 경로 (절대/상대 모두 허용)
     pnh.param<std::string>("waypoint_file", g_waypoint_file_path, g_waypoint_file_path);
-    pnh.param<std::string>("ref_file",      g_ref_file_path,      g_ref_file_path);
 
     ROS_INFO("[MPC] Params: horizon=%d dt=%.2f max_iter=%d wheelbase=%.2f freq=%.1fHz",
              p.horizon, p.dt, p.max_iterations, p.wheelbase, p.control_frequency);
@@ -93,34 +92,14 @@ void computeWaypointCurvatures()
 }
 
 // ========================================
-// CSV 에서 ref + waypoints 로드
+// CSV 에서 waypoints 로드 (아직 GPS-ENU 좌표계 — 다음 단계에서 mgeo 기반으로 교체 예정)
 //   PlanningControl 의 loadWaypoints 와 호환:
-//     ref.txt:     "lat0 lon0 h0"
 //     waypoint csv: 각 라인 "x y ..."  또는 "x,y,..."
 // ========================================
 bool loadWaypoints()
 {
     waypoints.clear();
 
-    // 1) ref point
-    ROS_INFO("[MPC] Opening ref file: %s", g_ref_file_path.c_str());
-    std::ifstream ref_file(g_ref_file_path);
-    if (!ref_file.is_open()) {
-        ROS_WARN("[MPC] Failed to open ref file: %s  (GPS 콜백 첫 수신 시 ref 설정)",
-                 g_ref_file_path.c_str());
-        // ref 파일이 없어도 GPS 첫 수신에서 자동 초기화되므로 계속 진행
-    } else {
-        ref_file >> coord_ref.lat0 >> coord_ref.lon0 >> coord_ref.h0;
-        ref_file.close();
-
-        wgs84ToECEF(coord_ref.lat0, coord_ref.lon0, coord_ref.h0,
-                    coord_ref.x0_ecef, coord_ref.y0_ecef, coord_ref.z0_ecef);
-        coord_ref_initialized = true;
-        ROS_INFO("[MPC] Ref point: lat=%.8f lon=%.8f h=%.3f",
-                 coord_ref.lat0, coord_ref.lon0, coord_ref.h0);
-    }
-
-    // 2) waypoint csv
     ROS_INFO("[MPC] Opening waypoint file: %s", g_waypoint_file_path.c_str());
     std::ifstream path_file(g_waypoint_file_path);
     if (!path_file.is_open()) {

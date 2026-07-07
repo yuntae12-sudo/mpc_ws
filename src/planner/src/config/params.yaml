@@ -6,7 +6,7 @@
 
 # mpc_controller와 동일한 CSV 포맷("x y" 또는 "x,y", 한 줄에 한 점)을 공유.
 # 같은 글로벌 경로를 두 노드가 나눠서 쓰도록 mpc_controller/src/config/path.txt를 그대로 가리킴.
-waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path.txt"
+waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path_route1.txt"
 
 # path.txt를 만들 때 쓴 GPS 원점("lat0 lon0 h0"). mpc_controller와 반드시 같은
 # 파일을 가리켜야 두 노드의 ENU 좌표 원점이 일치한다 (원점이 다르면 서로 다른

@@ -13,9 +13,7 @@
 #include <array>
 
 #include <ros/ros.h>
-#include <sensor_msgs/Imu.h>
 #include <morai_msgs/CtrlCmd.h>
-#include <morai_msgs/GPSMessage.h>
 #include <morai_msgs/EgoVehicleStatus.h>
 
 // ========================================
@@ -120,18 +118,6 @@ struct MPCParams {
 };
 
 // ========================================
-// 좌표 변환용 (GPS reference point)
-// ========================================
-struct CoordinateReference {
-    double lat0 = 0.0;
-    double lon0 = 0.0;
-    double h0   = 0.0;
-    double x0_ecef = 0.0;
-    double y0_ecef = 0.0;
-    double z0_ecef = 0.0;
-};
-
-// ========================================
 // 전역 변수 (extern)
 // ========================================
 
@@ -145,9 +131,8 @@ extern std::vector<Waypoint> waypoints;
 // 파라미터
 extern MPCParams mpc_params;
 
-// GPS 좌표 reference
-extern CoordinateReference coord_ref;
-extern bool   coord_ref_initialized;
+// /Ego_topic 최초 수신 여부 (수신 전엔 정지 명령만 발행)
+extern bool ego_received;
 
 // 진단/플래그
 extern int  closest_waypoint_idx;
@@ -157,7 +142,6 @@ extern ros::Publisher cmd_pub;
 extern std::mutex ego_mutex;
 
 // CSV 경로
-extern std::string g_ref_file_path;
 extern std::string g_waypoint_file_path;
 
 #endif // MPC_GLOBAL_HPP

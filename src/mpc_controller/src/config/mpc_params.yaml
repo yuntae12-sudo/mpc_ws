@@ -45,5 +45,5 @@ planning:
   curve_th_mid:    0.035
   curve_th_mild:   0.015
 
-waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path.txt"
+waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path_route1.txt"
 ref_file:      "/home/autonav/mpc_ws/src/mpc_controller/src/config/ref.txt"

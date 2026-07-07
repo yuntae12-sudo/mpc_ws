@@ -10,46 +10,18 @@ static std::vector<MPCControl> g_warm_start;
 // ROS 콜백 (변경 없음)
 // ========================================
 
-void CBGps(const morai_msgs::GPSMessage::ConstPtr& msg)
-{
-    if (!msg) return;
-
-    if (msg->status == 0) return;  // GPS jamming/무효 fix
-
-    if (!coord_ref_initialized) {
-        coord_ref.lat0 = msg->latitude;
-        coord_ref.lon0 = msg->longitude;
-        coord_ref.h0   = msg->altitude;
-        wgs84ToECEF(coord_ref.lat0, coord_ref.lon0, coord_ref.h0,
-                    coord_ref.x0_ecef, coord_ref.y0_ecef, coord_ref.z0_ecef);
-        coord_ref_initialized = true;
-        ROS_INFO("[MPC] GPS ref auto-init: lat=%.8f lon=%.8f", coord_ref.lat0, coord_ref.lon0);
-    }
-
-    double x, y, z;
-    wgs84ToENU(msg->latitude, msg->longitude, msg->altitude, coord_ref, x, y, z);
-
-    std::lock_guard<std::mutex> lk(ego_mutex);
-    ego.x = x;
-    ego.y = y;
-}
-
-void CBImu(const sensor_msgs::Imu::ConstPtr& msg)
-{
-    if (!msg) return;
-    double yaw = quaternionToYaw(msg->orientation.x,
-                                 msg->orientation.y,
-                                 msg->orientation.z,
-                                 msg->orientation.w);
-    std::lock_guard<std::mutex> lk(ego_mutex);
-    ego.yaw = yaw;
-}
-
+// EgoVehicleStatus.position/heading을 GPS+IMU 변환 없이 그대로 ego 상태로
+// 사용한다 (MORAI 월드좌표계, 이번 단계에서는 waypoint_file은 아직 GPS-ENU
+// 좌표계라 서로 프레임이 다름 — 다음 단계에서 mgeo 기반 경로로 교체 예정).
 void CBEgoState(const morai_msgs::EgoVehicleStatus::ConstPtr& msg)
 {
     if (!msg) return;
     std::lock_guard<std::mutex> lk(ego_mutex);
-    ego.vx = msg->velocity.x;
+    ego.x   = msg->position.x;
+    ego.y   = msg->position.y;
+    ego.yaw = deg2rad(msg->heading);
+    ego.vx  = msg->velocity.x;
+    ego_received = true;
 }
 
 // ========================================
@@ -81,8 +53,8 @@ void controlLoop(const ros::TimerEvent&)
         ego_snap = ego;
     }
 
-    if (!coord_ref_initialized) {
-        ROS_WARN_THROTTLE(1.0, "[MPC] Waiting for GPS reference initialization...");
+    if (!ego_received) {
+        ROS_WARN_THROTTLE(1.0, "[MPC] Waiting for /Ego_topic...");
         publishCtrlCmd(0.0, 0.0, 0.3);
         return;
     }

@@ -11,7 +11,6 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
   nav_msgs
-  sensor_msgs
   visualization_msgs
   morai_msgs
   tf
@@ -22,7 +21,6 @@ catkin_package(
     roscpp
     std_msgs
     nav_msgs
-    sensor_msgs
     visualization_msgs
     morai_msgs
     tf
@@ -48,7 +46,6 @@ include_directories(
 add_executable(mpc_node
   src/main.cpp
   src/global/global.cpp
-  src/global/utils.cpp
   src/global/parameter_loader.cpp
   src/model/vehicle_model.cpp
   src/cost/cost_function.cpp

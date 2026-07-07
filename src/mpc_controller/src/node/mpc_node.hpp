@@ -8,8 +8,6 @@
 // ========================================
 // ROS 콜백
 // ========================================
-void CBGps     (const morai_msgs::GPSMessage::ConstPtr& msg);
-void CBImu     (const sensor_msgs::Imu::ConstPtr& msg);
 void CBEgoState(const morai_msgs::EgoVehicleStatus::ConstPtr& msg);
 
 // ========================================

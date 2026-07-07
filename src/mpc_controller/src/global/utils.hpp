@@ -3,20 +3,6 @@
 
 #include "global.hpp"
 
-// ============================= coord utils ==================================
-// WGS84 → ECEF
-void wgs84ToECEF(double lat, double lon, double h,
-                 double& x, double& y, double& z);
-
-// WGS84 → ENU (ref 기준)
-void wgs84ToENU(double lat, double lon, double h,
-                const CoordinateReference& ref,
-                double& x, double& y, double& z);
-
-// quaternion → yaw
-double quaternionToYaw(double x, double y, double z, double w);
-
-
 // ============================= math utils =================================
 constexpr double PI       = M_PI;
 constexpr double TWO_PI   = 2.0 * M_PI;

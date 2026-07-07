@@ -140,7 +140,6 @@ add_executable(frenet_planner_node
   src/math/polynomial.cpp
   src/math/frenet_converter.cpp
   src/global/data_logger.cpp
-  src/global/utils.cpp
   src/visualization/visualization.cpp
 )
 
