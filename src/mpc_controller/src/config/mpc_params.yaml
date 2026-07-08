@@ -44,6 +44,7 @@ planning:
   curve_th_sharp:  0.080
   curve_th_mid:    0.035
   curve_th_mild:   0.015
+  curve_lookahead_m: 15.0  # [m] 이 거리 안에 더 급한 커브가 있으면 미리 그 속도로 감속
 
 waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path_route1.txt"
 ref_file:      "/home/autonav/mpc_ws/src/mpc_controller/src/config/ref.txt"

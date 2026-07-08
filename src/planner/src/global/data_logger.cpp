@@ -3,7 +3,7 @@
 #include <fstream>
 #include <sstream>
 
-bool LoadReferenceLine(const std::string& path, RefLine& out_ref) {
+bool LoadReferenceLine(const std::string& path, RefLine& out_ref, double max_curvature) {
     std::ifstream file(path);
     if (!file.is_open()) {
         ROS_ERROR("[FrenetPlanner] Failed to open waypoint file: %s", path.c_str());
@@ -47,7 +47,7 @@ bool LoadReferenceLine(const std::string& path, RefLine& out_ref) {
         return false;
     }
 
-    out_ref = BuildRefLine(wx, wy);
+    out_ref = BuildRefLine(wx, wy, max_curvature);
     ROS_INFO("[FrenetPlanner] Loaded %zu waypoints from %s", wx.size(), path.c_str());
     return true;
 }
@@ -59,7 +59,8 @@ void LoadParams(ros::NodeHandle& pnh,
                  VehicleShape& vehicle_shape,
                  CollisionCheckConfig& collision_cfg,
                  double& target_speed,
-                 BehaviorBridgeConfig& bridge_cfg) {
+                 BehaviorBridgeConfig& bridge_cfg,
+                 double& wheelbase) {
     pnh.param<double>("planner/path_generator/lateral_d1/min",   path_cfg.lateral_d1.min,   -3.0);
     pnh.param<double>("planner/path_generator/lateral_d1/max",   path_cfg.lateral_d1.max,    3.0);
     pnh.param<double>("planner/path_generator/lateral_d1/step",  path_cfg.lateral_d1.step,   0.5);
@@ -96,6 +97,9 @@ void LoadParams(ros::NodeHandle& pnh,
     // FSM이 아직 없을 때 쓰는 고정 목표속도 (config/params.yaml엔 없던 값 -
     // 이 검증 노드 전용 파라미터라 여기서만 기본값을 관리)
     pnh.param<double>("planner/default_target_speed", target_speed, 8.0);
+
+    // CBEgoState의 kappa 추정(자전거 모델)에 쓰는 축거. mpc_controller/mpc_params.yaml과 동일 값으로 유지.
+    pnh.param<double>("planner/wheelbase", wheelbase, 3.0);
 
     pnh.param<double>("planner/lane_width",              bridge_cfg.lane_width,              3.5);
     pnh.param<double>("planner/behavior_context_timeout",bridge_cfg.context_timeout,         0.5);

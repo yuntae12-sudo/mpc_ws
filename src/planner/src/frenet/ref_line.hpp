@@ -33,7 +33,8 @@ struct RefLine {
 // =========================================================
 
 RefLine BuildRefLine(const std::vector<double>& wx,
-                     const std::vector<double>& wy);
+                     const std::vector<double>& wy,
+                     double max_curvature);
 
 // =========================================================
 // s* 탐색 (Cartesian -> Frenet First Step)

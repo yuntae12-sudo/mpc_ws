@@ -64,11 +64,29 @@ void CartesianToFrenet(const RefLine& ref, const CartesianState& cs,
 // 선택된 FrenetPath(시간 샘플 배열)를 트래킹/MPC에 넘길 최종 CartesianPath (x,y,yaw,kappa,v,a 배열)로 변환한다.
 //
 // 전제: path는 FilterByCurvature/FilterByCollision을 통과한 valid==true
-// 상태여야 한다. TimeDerivToArcDeriv가 고속 모드 전용이라, path.s_d[i]가
-// 0에 가까운 샘플이 섞여 있으면 그 지점에서 변환이 불안정해진다
-// (TODO: FSM 저속 처리와 함께 정책 결정 필요).
+// 상태여야 한다. path.s_d[i]가 0에 가까운 샘플(STOP/EMERGENCY 정지 지점 등)은
+// TimeDerivToArcDeriv 대신 ComputeGeometricPath 기반 값으로 대체해 안전하게
+// 처리한다 (0/0=NaN 방지, .cpp 함수 상단 주석 참고).
 // =========================================================
 
 CartesianPath ConvertToCartesianPath(const FrenetPath& path, const RefLine& ref);
+
+// =========================================================
+// [저속 대응] 위치(x,y) 기반 기하학적 yaw/kappa 계산.
+//
+// x = r(s) + d*n_r(s) 는 s_dot과 무관하게 항상 well-defined이므로(식 (1)),
+// FilterByCurvature/FilterByCollision이 쓰던 TimeDerivToArcDeriv 기반 계산
+// (d_prime = d_dot/s_dot, s_dot->0에서 발산)을 거치지 않고 후보의 (x,y) 점
+// 자체로부터 유한차분 yaw/kappa를 구한다. 저속(s_dot≈0) 후보(STOP/EMERGENCY
+// 등)를 "몰라서 무효 처리"하지 않고 실제 기하로 정확히 판정할 수 있다.
+// =========================================================
+
+struct GeometricPath {
+    std::vector<double> x, y, yaw, kappa;
+};
+
+GeometricPath ComputeGeometricPath(const std::vector<double>& s,
+                                    const std::vector<double>& d,
+                                    const RefLine& ref);
 
 #endif

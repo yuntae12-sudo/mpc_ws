@@ -70,28 +70,26 @@ void FilterByCollision(std::vector<FrenetPath>& combined,
                         const std::vector<ObjectInfo>& obstacles,
                         const VehicleShape& ego_shape,
                         const CollisionCheckConfig& cfg) {
-    constexpr double kMinSpeedForCheck = 0.1;  // [m/s], frenet_converter 고속 모드 전제 하한
+    // 이 값은 나눗셈이 아니라 "정지 상태면 coast 연장 추정을 할 필요가 없다"는
+    // 최적화 판단에만 쓰인다 (아래 reactive-lookahead 섹션). 곡률/충돌 본 검사
+    // 자체는 더 이상 이 임계값에 의존하지 않는다 (ComputeGeometricPath 참고).
+    constexpr double kMinSpeedForCheck = 0.1;  // [m/s]
 
     for (auto& path : combined) {
         if (!path.valid) continue;
 
         bool collided = false;
 
+        // FilterByCurvature와 동일한 이유로, 저속(s_dot≈0)에서 발산하는
+        // TimeDerivToArcDeriv 기반 계산 대신 위치(x,y) 기반 기하학적 yaw를
+        // 쓴다 (ego box 방향에는 yaw만 필요, kappa/v/a는 안 씀).
+        GeometricPath geo = ComputeGeometricPath(path.s, path.d, ref);
+
         for (size_t i = 0; i < path.t.size() && !collided; i++) {
-            if (std::abs(path.s_d[i]) < kMinSpeedForCheck) {
-                // TODO(추후 개발 필요, FSM 저속 처리와 함께): FilterByCurvature와 동일한
-                // 이유로 고속 모드 전제가 깨지므로 이 궤적은 무효 처리한다.
-                path.valid = false;
-                break;
-            }
-
-            double d_prime, d_pprime;
-            TimeDerivToArcDeriv(path.s_d[i], path.s_dd[i], path.d_d[i], path.d_dd[i],
-                                 d_prime, d_pprime);
-
-            RefPoint rp = Interpolate(ref, path.s[i]);
-            CartesianState cs = FrenetToCartesian(rp, path.s[i], path.s_d[i], path.s_dd[i],
-                                                   path.d[i], d_prime, d_pprime);
+            CartesianState cs{};
+            cs.x = geo.x[i];
+            cs.y = geo.y[i];
+            cs.yaw = geo.yaw[i];
 
             // Sec.VI: 마진은 "자차 크기"에만 더해짐 (장애물 쪽은 원래 크기 그대로).
             // 시간이 지날수록(t가 클수록) 마진이 커져 장애물이 "뒤로 물러나는" 효과.

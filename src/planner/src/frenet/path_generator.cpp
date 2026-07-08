@@ -339,28 +339,16 @@ std::vector<FrenetPath> CombineLateralLongitudinal(const std::vector<FrenetPath>
 void FilterByCurvature(std::vector<FrenetPath>& combined,
                         const RefLine& ref,
                         const KinematicLimits& limits) {
-    constexpr double kMinSpeedForCurvatureCheck = 0.1;  // [m/s], 고속 모드 전제 하한
-
+    // 시간미분->호길이미분(TimeDerivToArcDeriv, s_dot로 나눔) 기반 계산은 저속에서
+    // 발산해 STOP/EMERGENCY처럼 정지에 수렴하는 후보를 전부 무효화시켰다
+    // (frenet_converter.hpp의 ComputeGeometricPath 설계 노트 참고). 위치(x,y)
+    // 기반 기하학적 곡률로 대체해 고속/저속 구분 없이 일관되게 판정한다.
     for (auto& path : combined) {
         if (!path.valid) continue;
 
-        for (size_t i = 0; i < path.t.size(); i++) {
-            if (std::abs(path.s_d[i]) < kMinSpeedForCurvatureCheck) {
-                // TODO(추후 개발 필요, FSM 저속 처리와 함께): 저속에서는 d(s) 모드 +
-                // 별도 곡률 계산이 필요. 지금은 고속 모드 전제가 깨지므로 무효 처리.
-                path.valid = false;
-                break;
-            }
-
-            double d_prime, d_pprime;
-            TimeDerivToArcDeriv(path.s_d[i], path.s_dd[i], path.d_d[i], path.d_dd[i],
-                                 d_prime, d_pprime);
-
-            RefPoint rp = Interpolate(ref, path.s[i]);
-            CartesianState cs = FrenetToCartesian(rp, path.s[i], path.s_d[i], path.s_dd[i],
-                                                   path.d[i], d_prime, d_pprime);
-
-            if (std::abs(cs.kappa) > limits.max_curvature) {
+        GeometricPath geo = ComputeGeometricPath(path.s, path.d, ref);
+        for (double k : geo.kappa) {
+            if (std::abs(k) > limits.max_curvature) {
                 path.valid = false;
                 break;
             }

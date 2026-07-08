@@ -13,7 +13,7 @@
 // waypoint 파일("x y" 또는 "x,y") -> RefLine
 // =========================================================
 
-bool LoadReferenceLine(const std::string& path, RefLine& out_ref);
+bool LoadReferenceLine(const std::string& path, RefLine& out_ref, double max_curvature);
 
 // =========================================================
 // params.yaml -> 각 config struct 로드 (config/params.yaml 키 구조와 동일)
@@ -26,6 +26,7 @@ void LoadParams(ros::NodeHandle& pnh,
                  VehicleShape& vehicle_shape,
                  CollisionCheckConfig& collision_cfg,
                  double& target_speed,
-                 BehaviorBridgeConfig& bridge_cfg);
+                 BehaviorBridgeConfig& bridge_cfg,
+                 double& wheelbase);
 
 #endif

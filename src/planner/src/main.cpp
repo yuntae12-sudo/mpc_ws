@@ -47,6 +47,7 @@ ros::Publisher g_marker_pub;
 ros::Publisher g_feedback_pub;
 std::string g_viz_frame_id = "map";       // rviz Fixed Frame과 일치해야 함 (params.yaml에서 로드)
 std::string g_ego_frame_id = "ego_vehicle";  // rviz 카메라가 따라갈 tf 프레임 이름
+double g_wheelbase = 3.0;  // [m] 축거. CBEgoState의 kappa 추정(자전거 모델)에 사용 (mpc_controller/mpc_params.yaml과 동일).
 
 double MoraiHeadingToYawRad(double heading_deg) {
     return heading_deg * M_PI / 180.0;
@@ -77,10 +78,10 @@ void CBEgoState(const morai_msgs::EgoVehicleStatus::ConstPtr& msg) {
     g_ego_cs.yaw = MoraiHeadingToYawRad(msg->heading);
     g_ego_cs.v = msg->velocity.x;
     g_ego_cs.a = msg->acceleration.x;
-    // TODO(알려진 한계, 실측 확인됨): kappa를 EgoVehicleStatus가 안 줘서 0으로
-    // 근사. 급조향 순간 그 사이클의 후보가 전부 무효화됐다가 다음 사이클에
-    // 자연 복구되는 현상 있음. 근본 해결: wheel_angle+wheelbase로 kappa 추정.
-    g_ego_cs.kappa = 0.0;
+    // 자전거 모델: kappa = tan(wheel_angle) / wheelbase.
+    // TODO(검증 필요): wheel_angle의 단위(deg 가정, heading과 동일 관례)와
+    // 부호(좌회전=양수 가정)가 실측으로 확인되지 않음.
+    g_ego_cs.kappa = std::tan(msg->wheel_angle * M_PI / 180.0) / g_wheelbase;
 
     g_ego_received = true;
 }
@@ -238,7 +239,7 @@ int main(int argc, char** argv) {
     ROS_INFO("========================================");
 
     LoadParams(pnh, g_path_cfg, g_limits, g_cost_weights, g_vehicle_shape, g_collision_cfg,
-               g_target_speed, g_bridge_cfg);
+               g_target_speed, g_bridge_cfg, g_wheelbase);
     pnh.param<std::string>("planner/viz_frame_id", g_viz_frame_id, "map");
     pnh.param<std::string>("planner/ego_frame_id", g_ego_frame_id, "ego_vehicle");
 
@@ -247,7 +248,7 @@ int main(int argc, char** argv) {
 
     std::string waypoint_file;
     pnh.param<std::string>("waypoint_file", waypoint_file, "");
-    if (waypoint_file.empty() || !LoadReferenceLine(waypoint_file, g_ref)) {
+    if (waypoint_file.empty() || !LoadReferenceLine(waypoint_file, g_ref, g_limits.max_curvature)) {
         ROS_ERROR("[FrenetPlanner] Reference line load failed. Node will keep running "
                    "but will not publish until a valid waypoint_file param is set.");
     } else {

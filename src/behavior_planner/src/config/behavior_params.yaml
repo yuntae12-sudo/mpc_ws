@@ -4,10 +4,10 @@ map:
   node_set_path: "/home/autonav/mpc_ws/src/behavior_planner/src/config/node_set.json"
 route: {route_links_path: "/home/autonav/mpc_ws/src/behavior_planner/src/config/route_links_1.yaml"}
 traffic_light: {mock_path: "/home/autonav/mpc_ws/src/behavior_planner/src/config/traffic_light_mock.yaml", use_mock: true}
-vehicle: {length: 4.7, width: 1.85, wheelbase: 2.7}
+vehicle: {length: 4.7, width: 1.85, wheelbase: 3.0}
 lane: {default_width: 3.5}
 safety: {front_min_gap: 8.0, follow_time_gap: 1.5, lane_change_front_gap: 12.0, lane_change_rear_gap: 15.0, emergency_ttc: 1.0, warning_ttc: 3.0, pedestrian_stop_distance: 15.0}
-stop: {stop_margin: 6.0, red_light_stop_distance: 60.0}
+stop: {stop_margin: 6.0, red_light_stop_distance: 27.0}
 score_weight: {safety: 1.0, route: 0.8, efficiency: 0.5, comfort: 0.2}
 topics: {ego: "/Ego_topic", objects: "/Object_topic", plan_feedback: "/planner/plan_feedback"}
 publish_topics: {behavior_context: "/behavior/context", feature_debug: "/behavior/feature_debug", marker: "/behavior/markers"}

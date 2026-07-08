@@ -59,6 +59,19 @@ bool buildReferenceFromWaypoints(
         return params.target_vel;
     };
 
+    // i 지점의 곡률만 보면 커브에 진입하는 순간에야 감속을 시작하게 된다.
+    // curve_lookahead_m 이내에 더 급한 커브가 있으면 그 커브의 곡률로
+    // 미리 감속하도록, 전방 구간의 최대 곡률을 채택한다.
+    auto lookaheadCurvature = [&](int i) -> double {
+        double max_k = waypoints[i].curvature;
+        double dist = 0.0;
+        for (int j = i + 1; j < n && dist < params.curve_lookahead_m; ++j) {
+            dist += std::hypot(waypoints[j].x - waypoints[j-1].x, waypoints[j].y - waypoints[j-1].y);
+            max_k = std::max(max_k, waypoints[j].curvature);
+        }
+        return max_k;
+    };
+
     for (int i = best; i < last; ++i) {
         out_ref.x_ref.push_back(waypoints[i].x);
         out_ref.y_ref.push_back(waypoints[i].y);
@@ -74,7 +87,7 @@ bool buildReferenceFromWaypoints(
                                  waypoints[i].x - waypoints[i-1].x);
         }
         out_ref.yaw_ref.push_back(yaw_ref);
-        out_ref.v_ref.push_back(velocityFromCurvature(waypoints[i].curvature));
+        out_ref.v_ref.push_back(velocityFromCurvature(lookaheadCurvature(i)));
     }
 
     // v_ref smoothing: 계단식 속도 변화 완화

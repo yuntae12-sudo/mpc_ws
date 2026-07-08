@@ -142,6 +142,12 @@ void CartesianToFrenet(const RefLine& ref, const CartesianState& cs,
 }
 
 // ConvertToCartesianPath (설계 노트는 헤더 참고)
+//
+// STOP/EMERGENCY 후보는 마지막 샘플에서 s_dot=0, s_ddot=0, d_dot=0, d_ddot=0이
+// 되도록 설계된다 (완전 정지). 이때 TimeDerivToArcDeriv의 d_prime=d_dot/s_dot는
+// 0/0 = NaN이 되고, 그 NaN이 FrenetToCartesian의 yaw/kappa/v/a 전부를 오염시킨다
+// (진짜 값은 전부 0이지만 "0 * NaN = NaN"으로 뒤덮임). 저속 구간만 골라
+// 안전한 값(위치 기반 yaw/kappa, s_dot/s_ddot을 그대로 v/a로)으로 대체한다.
 CartesianPath ConvertToCartesianPath(const FrenetPath& path, const RefLine& ref) {
     CartesianPath result;
 
@@ -153,7 +159,21 @@ CartesianPath ConvertToCartesianPath(const FrenetPath& path, const RefLine& ref)
     result.v.reserve(n);
     result.a.reserve(n);
 
+    constexpr double kMinSpeedForAnalytic = 0.1;  // [m/s]
+
+    GeometricPath geo = ComputeGeometricPath(path.s, path.d, ref);
+
     for (size_t i = 0; i < n; i++) {
+        if (std::abs(path.s_d[i]) < kMinSpeedForAnalytic) {
+            result.x.push_back(geo.x[i]);
+            result.y.push_back(geo.y[i]);
+            result.yaw.push_back(geo.yaw[i]);
+            result.kappa.push_back(geo.kappa[i]);
+            result.v.push_back(path.s_d[i]);
+            result.a.push_back(path.s_dd[i]);
+            continue;
+        }
+
         double d_prime, d_pprime;
         TimeDerivToArcDeriv(path.s_d[i], path.s_dd[i], path.d_d[i], path.d_dd[i],
                              d_prime, d_pprime);
@@ -171,4 +191,53 @@ CartesianPath ConvertToCartesianPath(const FrenetPath& path, const RefLine& ref)
     }
 
     return result;
+}
+
+// ComputeGeometricPath (설계 노트는 헤더 참고)
+GeometricPath ComputeGeometricPath(const std::vector<double>& s,
+                                    const std::vector<double>& d,
+                                    const RefLine& ref) {
+    const size_t n = s.size();
+    GeometricPath gp;
+    gp.x.resize(n);
+    gp.y.resize(n);
+    gp.yaw.resize(n, 0.0);
+    gp.kappa.resize(n, 0.0);
+
+    // 식 (1): x = r(s) + d*n_r(s). s_dot/d_prime과 무관하므로 항상 안전.
+    for (size_t i = 0; i < n; i++) {
+        RefPoint rp = Interpolate(ref, s[i]);
+        gp.x[i] = rp.x + d[i] * (-std::sin(rp.theta));
+        gp.y[i] = rp.y + d[i] * std::cos(rp.theta);
+    }
+
+    // 이 거리보다 짧은 구간은 저속으로 점들이 거의 겹쳐서 방향을 못 믿는다 -
+    // "무효 처리"가 아니라 "판단 보류"로 직전 값을 그대로 이어받는다.
+    constexpr double kMinSegmentLength = 0.02;  // [m]
+
+    for (size_t i = 0; i < n; i++) {
+        double dx, dy;
+        if (i == 0)          { dx = gp.x[1] - gp.x[0];       dy = gp.y[1] - gp.y[0]; }
+        else if (i == n - 1) { dx = gp.x[n-1] - gp.x[n-2];   dy = gp.y[n-1] - gp.y[n-2]; }
+        else                 { dx = gp.x[i+1] - gp.x[i-1];   dy = gp.y[i+1] - gp.y[i-1]; }
+
+        if (std::hypot(dx, dy) > kMinSegmentLength) {
+            gp.yaw[i] = std::atan2(dy, dx);
+        } else {
+            gp.yaw[i] = (i > 0) ? gp.yaw[i - 1] : 0.0;
+        }
+    }
+
+    for (size_t i = 0; i < n; i++) {
+        const size_t a = (i == 0) ? 0 : i - 1;
+        const size_t b = (i == n - 1) ? n - 1 : i + 1;
+        const double seg_len = std::hypot(gp.x[b] - gp.x[a], gp.y[b] - gp.y[a]);
+        if (seg_len > kMinSegmentLength) {
+            const double d_theta = NormalizeAngle(gp.yaw[b] - gp.yaw[a]);
+            gp.kappa[i] = d_theta / seg_len;
+        }
+        // 짧은 구간은 kappa=0(초기값)으로 남겨 "판단 보류" (안전 쪽으로: 통과시킴).
+    }
+
+    return gp;
 }

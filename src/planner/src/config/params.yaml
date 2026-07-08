@@ -11,6 +11,7 @@ planner:
   ego_frame_id: "ego_vehicle"  # rviz에서 사용, 매 사이클 발행하는 map->ego_vehicle tf 이름.
 
   default_target_speed: 10.0    # PlannerCommand.target_speed 고정값 [m/s]
+  wheelbase: 3.0                 # [m] 축거. CBEgoState의 kappa 추정(자전거 모델)에 사용. mpc_controller/mpc_params.yaml과 동일.
 
   # --- behavior_bridge.hpp: /behavior/context 연동 ------------
   lane_width: 3.5                  # [m] 차선변경 목표 d 오프셋. link_set.json 전체 634개 링크가

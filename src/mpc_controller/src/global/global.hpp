@@ -81,7 +81,7 @@ struct MPCParams {
     int    horizon         = 15;     // 예측 horizon (steps)
     double dt              = 0.1;    // 샘플링 간격 [s]
     int    max_iterations  = 25;     // 솔버 최대 반복
-    double wheelbase       = 2.7;    // 축거 [m]
+    double wheelbase       = 3.0;    // 축거 [m]
     double control_frequency = 20.0; // 제어 주기 [Hz]
 
     // 제약 조건
@@ -115,6 +115,7 @@ struct MPCParams {
     double curve_th_sharp  = 0.01;
     double curve_th_mid    = 0.004;
     double curve_th_mild   = 0.001;
+    double curve_lookahead_m = 15.0;  // [m] 이 거리 안에 더 급한 커브가 있으면 미리 그 커브 속도로 감속
 };
 
 // ========================================

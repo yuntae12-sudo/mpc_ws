@@ -50,6 +50,7 @@ void loadMPCParameters(ros::NodeHandle& pnh)
     pnh.param<double>("planning/curve_th_sharp",  p.curve_th_sharp,  p.curve_th_sharp);
     pnh.param<double>("planning/curve_th_mid",    p.curve_th_mid,    p.curve_th_mid);
     pnh.param<double>("planning/curve_th_mild",   p.curve_th_mild,   p.curve_th_mild);
+    pnh.param<double>("planning/curve_lookahead_m", p.curve_lookahead_m, p.curve_lookahead_m);
 
     // CSV 파일 경로 (절대/상대 모두 허용)
     pnh.param<std::string>("waypoint_file", g_waypoint_file_path, g_waypoint_file_path);
@@ -63,25 +64,36 @@ void loadMPCParameters(ros::NodeHandle& pnh)
 }
 
 // ========================================
-// 3점 원 근사로 곡률 계산
+// 3점 원 근사로 곡률 계산 (여러 baseline 중 최댓값 채택)
 //   k = 2 * |cross| / (a*b*c)  where a,b,c 는 삼각형 세 변
+//
+//   gap(baseline)이 하나만 있으면(예전엔 25로 고정) 그 baseline보다 짧은
+//   구간에 있는 급격한 꺾임(예: 링크 이어붙임 이음매)이 넓은 현(chord)에
+//   묻혀 실제보다 훨씬 완만하게 측정된다. 짧은/중간/넓은 baseline을 모두
+//   계산해서 그중 가장 급한(가장 큰) 값을 쓰면 어느 길이의 커브든 놓치지
+//   않는다.
 // ========================================
 void computeWaypointCurvatures()
 {
     if (waypoints.size() < 3) return;
 
+    constexpr size_t kGaps[] = {3, 8, 15, 25};
+
     auto curvAt = [&](size_t i)->double {
-        const size_t gap = 25;
-        if (i < gap || i + gap >= waypoints.size()) return 0.0;
-        const auto& p0 = waypoints[i-gap];
-        const auto& p1 = waypoints[i];
-        const auto& p2 = waypoints[i+gap];
-        double a = std::hypot(p1.x-p0.x, p1.y-p0.y);
-        double b = std::hypot(p2.x-p1.x, p2.y-p1.y);
-        double c = std::hypot(p2.x-p0.x, p2.y-p0.y);
-        if (a < 1e-6 || b < 1e-6 || c < 1e-6) return 0.0;
-        double cross = std::fabs((p1.x-p0.x)*(p2.y-p0.y) - (p1.y-p0.y)*(p2.x-p0.x));
-        return 2.0 * cross / (a*b*c);
+        double max_k = 0.0;
+        for (size_t gap : kGaps) {
+            if (i < gap || i + gap >= waypoints.size()) continue;
+            const auto& p0 = waypoints[i-gap];
+            const auto& p1 = waypoints[i];
+            const auto& p2 = waypoints[i+gap];
+            double a = std::hypot(p1.x-p0.x, p1.y-p0.y);
+            double b = std::hypot(p2.x-p1.x, p2.y-p1.y);
+            double c = std::hypot(p2.x-p0.x, p2.y-p0.y);
+            if (a < 1e-6 || b < 1e-6 || c < 1e-6) continue;
+            double cross = std::fabs((p1.x-p0.x)*(p2.y-p0.y) - (p1.y-p0.y)*(p2.x-p0.x));
+            max_k = std::max(max_k, 2.0 * cross / (a*b*c));
+        }
+        return max_k;
     };
 
     for (size_t i = 0; i < waypoints.size(); ++i) {

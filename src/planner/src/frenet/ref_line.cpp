@@ -20,6 +20,89 @@ std::vector<double> CumulativeArcLength(const std::vector<double>& x, const std:
     return s;
 }
 
+// (아래 3단계 스무딩 파이프라인에서 사용, 정의는 이 파일 뒤쪽에 있음)
+void ComputeThetaKappa(const std::vector<double>& x, const std::vector<double>& y,
+                        std::vector<double>& theta, std::vector<double>& kappa);
+
+// MGeo 링크를 이어붙인 원본 waypoint에는 국소적으로 물리적 회전반경(1~2m대)을
+// 넘는 급격한 꺾임이 다수 섞여있어(링크 이어붙임 이음매, 원본 좌표 노이즈 등),
+// FilterByCurvature가 그 지점을 지나는 모든 후보를 동시에 무효화시킨다.
+// 아래 3단계(스무딩 -> 균일 재샘플링 -> 잔여 초과분 국소 이완)로 완화한다.
+// 스무딩만 단독으로 하면 인접점끼리 arc-length상 다닥다닥 붙어버려 오히려
+// kappa=dtheta/ds의 분모(ds)가 작아지며 곡률이 더 커지는 역효과가 실측으로
+// 확인됐다 (재샘플링으로 ds를 다시 균일하게 맞춰줘야 함).
+constexpr double kSmoothingWindowM = 10.0;  // [m] 이동평균 전체 윈도우 폭
+constexpr double kResampleDs       = 0.5;   // [m] 재샘플링 간격 (원본 waypoint 간격과 동일)
+constexpr int    kRelaxMaxIter     = 300;
+constexpr double kRelaxStep        = 0.3;   // 초과 지점을 양옆 중점 쪽으로 당기는 비율
+
+void SmoothWaypoints(const std::vector<double>& x, const std::vector<double>& y,
+                      double window_m, std::vector<double>& out_x, std::vector<double>& out_y) {
+    const int n = static_cast<int>(x.size());
+    std::vector<double> s = CumulativeArcLength(x, y);
+    out_x.resize(n);
+    out_y.resize(n);
+
+    int lo = 0, hi = 0;
+    double sum_x = 0.0, sum_y = 0.0;
+    for (int i = 0; i < n; i++) {
+        const double s_lo = s[i] - window_m / 2.0;
+        const double s_hi = s[i] + window_m / 2.0;
+
+        while (lo < n && s[lo] < s_lo) { sum_x -= x[lo]; sum_y -= y[lo]; lo++; }
+        while (hi < n && s[hi] <= s_hi) { sum_x += x[hi]; sum_y += y[hi]; hi++; }
+
+        const int cnt = hi - lo;
+        out_x[i] = (cnt > 0) ? sum_x / cnt : x[i];
+        out_y[i] = (cnt > 0) ? sum_y / cnt : y[i];
+    }
+}
+
+// 스무딩으로 흐트러진 점 간격을 균일 arc-length 간격으로 재조정.
+void ResampleUniform(const std::vector<double>& x, const std::vector<double>& y, double ds_target,
+                      std::vector<double>& out_x, std::vector<double>& out_y) {
+    std::vector<double> s = CumulativeArcLength(x, y);
+    const double total = s.back();
+    const int n_out = static_cast<int>(total / ds_target) + 1;
+    out_x.resize(n_out);
+    out_y.resize(n_out);
+
+    int j = 0;
+    for (int k = 0; k < n_out; k++) {
+        const double target_s = k * ds_target;
+        while (j < static_cast<int>(s.size()) - 2 && s[j + 1] < target_s) j++;
+        const double ds = s[j + 1] - s[j];
+        const double ratio = (ds > 1e-9) ? (target_s - s[j]) / ds : 0.0;
+        out_x[k] = x[j] + ratio * (x[j + 1] - x[j]);
+        out_y[k] = y[j] + ratio * (y[j + 1] - y[j]);
+    }
+}
+
+// 스무딩+재샘플링 이후에도 남아있는 국소 곡률 초과 지점을, 양옆 점의 중점
+// 쪽으로 조금씩 당겨서(라플라시안 완화) 반복적으로 줄인다.
+void FixInfeasibleCurvature(std::vector<double>& x, std::vector<double>& y, double max_curvature) {
+    const int n = static_cast<int>(x.size());
+    if (n < 3) return;
+
+    std::vector<double> theta, kappa;
+    for (int iter = 0; iter < kRelaxMaxIter; iter++) {
+        ComputeThetaKappa(x, y, theta, kappa);
+
+        std::vector<int> bad;
+        for (int i = 1; i < n - 1; i++) {
+            if (std::abs(kappa[i]) > max_curvature) bad.push_back(i);
+        }
+        if (bad.empty()) break;
+
+        for (int i : bad) {
+            const double mx = 0.5 * (x[i - 1] + x[i + 1]);
+            const double my = 0.5 * (y[i - 1] + y[i + 1]);
+            x[i] = x[i] * (1.0 - kRelaxStep) + mx * kRelaxStep;
+            y[i] = y[i] * (1.0 - kRelaxStep) + my * kRelaxStep;
+        }
+    }
+}
+
 // theta(중앙차분) + kappa(중앙차분, wrap-around 보정) 계산.
 void ComputeThetaKappa(const std::vector<double>& x, const std::vector<double>& y,
                         std::vector<double>& theta, std::vector<double>& kappa) {
@@ -51,25 +134,34 @@ void ComputeThetaKappa(const std::vector<double>& x, const std::vector<double>& 
 // BuildRefLine
 // =========================================================
 
-RefLine BuildRefLine(const std::vector<double>& wx, const std::vector<double>& wy) {
+RefLine BuildRefLine(const std::vector<double>& wx, const std::vector<double>& wy, double max_curvature) {
 
     if (wx.size() < 2 || wx.size() != wy.size())
         throw std::invalid_argument("Waypoints must have at least 2 points and matching sizes");
 
+    // 0. 국소 급커브 완화: 스무딩 -> 균일 재샘플링 -> 잔여 초과분 국소 이완.
+    std::vector<double> smoothed_x, smoothed_y;
+    SmoothWaypoints(wx, wy, kSmoothingWindowM, smoothed_x, smoothed_y);
+
+    std::vector<double> sx, sy;
+    ResampleUniform(smoothed_x, smoothed_y, kResampleDs, sx, sy);
+
+    FixInfeasibleCurvature(sx, sy, max_curvature);
+
     RefLine ref;
-    int n = static_cast<int>(wx.size());
+    int n = static_cast<int>(sx.size());
     ref.points.resize(n);
 
     // 1. arc length s 누적 계산
-    std::vector<double> s = CumulativeArcLength(wx, wy);
+    std::vector<double> s = CumulativeArcLength(sx, sy);
 
     // 2~3. theta/kappa: 중앙 차분 (wrap-around 보정 포함)
     std::vector<double> theta, kappa;
-    ComputeThetaKappa(wx, wy, theta, kappa);
+    ComputeThetaKappa(sx, sy, theta, kappa);
 
     for (int i = 0; i < n; i++) {
-        ref.points[i].x = wx[i];
-        ref.points[i].y = wy[i];
+        ref.points[i].x = sx[i];
+        ref.points[i].y = sy[i];
         ref.points[i].s = s[i];
         ref.points[i].theta = theta[i];
         ref.points[i].kappa = kappa[i];

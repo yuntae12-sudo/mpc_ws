@@ -61,9 +61,9 @@ bool CheckOBBOverlap(const OrientedBox& a, const OrientedBox& b);
 // 자차 OBB와 모든 장애물 OBB를 겹침 검사한다. 하나라도 겹치면 그 궤적은
 // valid=false 처리 (path_generator의 Filter* 함수들과 동일한 컨벤션).
 //
-// combined는 이미 FilterByCurvature까지 거친 상태여야 한다 — 이 함수도
-// 내부적으로 frenet_converter(고속 모드 전용)를 사용하므로 저속 샘플은
-// 동일한 방식으로 건너뛴다 (TODO: FSM 저속 처리와 함께 재검토).
+// combined는 이미 FilterByCurvature까지 거친 상태여야 한다. ego box 방향은
+// ComputeGeometricPath(위치 기반, s_dot 무관)로 구하므로 저속(STOP/EMERGENCY
+// 등 정지에 수렴하는 후보)에서도 정상적으로 판정된다.
 //
 // TODO(성능, 기존 한계로 기록 — 지금 당장 손대지 않음): 이 함수가 실시간
 // 성능의 병목이다. 오프라인 벤치마크(-O2) 결과, params.yaml 기본 격자
