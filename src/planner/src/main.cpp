@@ -5,9 +5,11 @@
 #include <std_msgs/Float32MultiArray.h>
 #include <morai_msgs/EgoVehicleStatus.h>
 #include <morai_msgs/ObjectStatusList.h>
+#include <behavior_planner/BehaviorContext.h>
 
 #include "global/global.hpp"
 #include "global/data_logger.hpp"
+#include "global/behavior_bridge.hpp"
 #include "frenet/ref_line.hpp"
 #include "frenet/path_generator.hpp"
 #include "frenet/cost.hpp"
@@ -24,18 +26,25 @@ bool g_ego_received = false;   // /Ego_topic 최초 수신 여부
 std::mutex g_obstacle_mutex;
 std::vector<ObjectInfo> g_obstacles;
 
+std::mutex g_behavior_mutex;
+behavior_planner::BehaviorContext g_behavior_ctx;
+bool g_behavior_received = false;
+ros::Time g_behavior_stamp;
+
 RefLine g_ref;
 bool g_ref_loaded = false;
 
-PathGeneratorConfig  g_path_cfg{};
-KinematicLimits      g_limits{};
-CostWeights          g_cost_weights{};
-VehicleShape         g_vehicle_shape{};
-CollisionCheckConfig g_collision_cfg{};
-double g_target_speed = 8.0;   // FSM 없을 때 쓰는 고정 목표속도 [m/s]
+PathGeneratorConfig   g_path_cfg{};
+KinematicLimits       g_limits{};
+CostWeights           g_cost_weights{};
+VehicleShape          g_vehicle_shape{};
+CollisionCheckConfig  g_collision_cfg{};
+BehaviorBridgeConfig  g_bridge_cfg{};
+double g_target_speed = 8.0;   // BehaviorContext 미수신/stale일 때 쓰는 고정 목표속도 [m/s]
 
 ros::Publisher g_traj_pub;
 ros::Publisher g_marker_pub;
+ros::Publisher g_feedback_pub;
 std::string g_viz_frame_id = "map";       // rviz Fixed Frame과 일치해야 함 (params.yaml에서 로드)
 std::string g_ego_frame_id = "ego_vehicle";  // rviz 카메라가 따라갈 tf 프레임 이름
 
@@ -92,6 +101,18 @@ void CBObjects(const morai_msgs::ObjectStatusList::ConstPtr& msg) {
     g_obstacles = std::move(obstacles);
 }
 
+// =========================================================
+// 콜백: BehaviorContext (INTEGRATION_PLAN.md 1번)
+// =========================================================
+void CBBehaviorContext(const behavior_planner::BehaviorContext::ConstPtr& msg) {
+    if (!msg) return;
+
+    std::lock_guard<std::mutex> lk(g_behavior_mutex);
+    g_behavior_ctx = *msg;
+    g_behavior_received = true;
+    g_behavior_stamp = ros::Time::now();
+}
+
 void PublishCartesianPath(const CartesianPath& cp) {
     std_msgs::Float32MultiArray msg;
     const size_t n = cp.x.size();
@@ -139,17 +160,41 @@ void PlanningLoop(const ros::TimerEvent&) {
 
     FrenetState start{s, s_dot, s_ddot, d, d_dot, d_ddot};
 
-    // 2. FSM 대체용 고정 PlannerCommand (파일 상단 설명 참고)
+    // 2. BehaviorContext -> PlannerCommand (staleness면 LANE_KEEPING 폴백,
+    //    INTEGRATION_PLAN.md 1.5)
+    behavior_planner::BehaviorContext ctx_snapshot;
+    bool ctx_fresh = false;
+    {
+        std::lock_guard<std::mutex> lk(g_behavior_mutex);
+        ctx_snapshot = g_behavior_ctx;
+        ctx_fresh = g_behavior_received &&
+                    (ros::Time::now() - g_behavior_stamp).toSec() < g_bridge_cfg.context_timeout;
+    }
+
     PlannerCommand cmd{};
-    cmd.mode = LANE_KEEPING;
-    cmd.target_speed = g_target_speed;
+    if (ctx_fresh) {
+        cmd = BuildCommandFromContext(ctx_snapshot, start, g_bridge_cfg);
+    } else {
+        ROS_WARN_THROTTLE(1.0, "[FrenetPlanner] No fresh /behavior/context, falling back to LANE_KEEPING");
+        cmd.mode = LANE_KEEPING;
+        cmd.target_speed = g_target_speed;
+    }
 
     // 3. 후보 생성 -> 충돌 필터 -> 비용 평가 -> 최적 선택
-    std::vector<FrenetPath> candidates = ResolveManeuver(start, cmd, g_ref, g_path_cfg, g_limits);
+    //    EMERGENCY는 승차감보다 최단 정지를 우선하도록 전용 가중치 사용
+    //    (INTEGRATION_PLAN.md 1.1.2, (a) 채택).
+    const CostWeights& cost_weights = (cmd.mode == EMERGENCY) ? g_bridge_cfg.emergency_cost_weights
+                                                                : g_cost_weights;
+
+    std::vector<FrenetPath> candidates =
+        ResolveManeuver(start, cmd, g_ref, g_path_cfg, g_limits, g_bridge_cfg.lane_width);
     FilterByCollision(candidates, g_ref, obstacles_snap, g_vehicle_shape, g_collision_cfg);
-    EvaluateCosts(candidates, g_cost_weights);
+    EvaluateCosts(candidates, cost_weights);
 
     const FrenetPath* best = SelectBestPath(candidates);
+
+    // PlanFeedback은 best 유무와 무관하게 매 사이클 발행 (INTEGRATION_PLAN.md 2번).
+    g_feedback_pub.publish(BuildFeedback(cmd, best, ctx_snapshot));
 
     // rviz 시각화는 best 유무와 무관하게 매 사이클 발행한다 — 실패한 순간
     // (후보가 전부 빨갛게 무효화되는 것)도 그대로 눈으로 볼 수 있어야 디버깅에 쓸모있다.
@@ -192,7 +237,8 @@ int main(int argc, char** argv) {
     ROS_INFO("  (FSM 미개발 상태 - 고정 LANE_KEEPING으로 검증)");
     ROS_INFO("========================================");
 
-    LoadParams(pnh, g_path_cfg, g_limits, g_cost_weights, g_vehicle_shape, g_collision_cfg, g_target_speed);
+    LoadParams(pnh, g_path_cfg, g_limits, g_cost_weights, g_vehicle_shape, g_collision_cfg,
+               g_target_speed, g_bridge_cfg);
     pnh.param<std::string>("planner/viz_frame_id", g_viz_frame_id, "map");
     pnh.param<std::string>("planner/ego_frame_id", g_ego_frame_id, "ego_vehicle");
 
@@ -213,16 +259,19 @@ int main(int argc, char** argv) {
 
     ros::Subscriber ego_sub = nh.subscribe("/Ego_topic", 1, CBEgoState);
     ros::Subscriber obj_sub = nh.subscribe("/Object_topic", 1, CBObjects);
+    ros::Subscriber behavior_sub = nh.subscribe("/behavior/context", 1, CBBehaviorContext);
 
     g_traj_pub = nh.advertise<std_msgs::Float32MultiArray>("/frenet_planner/trajectory", 1);
     g_marker_pub = nh.advertise<visualization_msgs::MarkerArray>("/frenet_planner/markers", 1);
+    g_feedback_pub = nh.advertise<behavior_planner::PlanFeedback>("/planner/plan_feedback", 1);
 
     double planning_hz = 10.0;  // 논문 Sec.VIII: 100ms 고정 주기
     pnh.param<double>("planner/planning_frequency", planning_hz, planning_hz);
     ros::Timer timer = nh.createTimer(ros::Duration(1.0 / planning_hz), PlanningLoop);
 
-    ROS_INFO("[FrenetPlanner] Subscribed: /Ego_topic /Object_topic");
-    ROS_INFO("[FrenetPlanner] Publishing: /frenet_planner/trajectory @ %.1f Hz", planning_hz);
+    ROS_INFO("[FrenetPlanner] Subscribed: /Ego_topic /Object_topic /behavior/context");
+    ROS_INFO("[FrenetPlanner] Publishing: /frenet_planner/trajectory /planner/plan_feedback @ %.1f Hz",
+             planning_hz);
     ROS_INFO("========================================");
 
     ros::spin();

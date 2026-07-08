@@ -58,7 +58,8 @@ void LoadParams(ros::NodeHandle& pnh,
                  CostWeights& cost_weights,
                  VehicleShape& vehicle_shape,
                  CollisionCheckConfig& collision_cfg,
-                 double& target_speed) {
+                 double& target_speed,
+                 BehaviorBridgeConfig& bridge_cfg) {
     pnh.param<double>("planner/path_generator/lateral_d1/min",   path_cfg.lateral_d1.min,   -3.0);
     pnh.param<double>("planner/path_generator/lateral_d1/max",   path_cfg.lateral_d1.max,    3.0);
     pnh.param<double>("planner/path_generator/lateral_d1/step",  path_cfg.lateral_d1.step,   0.5);
@@ -95,4 +96,16 @@ void LoadParams(ros::NodeHandle& pnh,
     // FSM이 아직 없을 때 쓰는 고정 목표속도 (config/params.yaml엔 없던 값 -
     // 이 검증 노드 전용 파라미터라 여기서만 기본값을 관리)
     pnh.param<double>("planner/default_target_speed", target_speed, 8.0);
+
+    pnh.param<double>("planner/lane_width",              bridge_cfg.lane_width,              3.5);
+    pnh.param<double>("planner/behavior_context_timeout",bridge_cfg.context_timeout,         0.5);
+    pnh.param<double>("planner/emergency_stop_buffer",   bridge_cfg.emergency_stop_buffer,   12.0);
+
+    pnh.param<double>("planner/cost_weights_emergency/kj",     bridge_cfg.emergency_cost_weights.kj,     1.0);
+    pnh.param<double>("planner/cost_weights_emergency/kt",     bridge_cfg.emergency_cost_weights.kt,     20.0);
+    pnh.param<double>("planner/cost_weights_emergency/kd",     bridge_cfg.emergency_cost_weights.kd,     1.0);
+    pnh.param<double>("planner/cost_weights_emergency/ks",     bridge_cfg.emergency_cost_weights.ks,     1.0);
+    pnh.param<double>("planner/cost_weights_emergency/ks_dot", bridge_cfg.emergency_cost_weights.ks_dot, 1.0);
+    pnh.param<double>("planner/cost_weights_emergency/klat",   bridge_cfg.emergency_cost_weights.klat,   1.0);
+    pnh.param<double>("planner/cost_weights_emergency/klon",   bridge_cfg.emergency_cost_weights.klon,   1.0);
 }

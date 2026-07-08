@@ -171,6 +171,7 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
                                          const PlannerCommand& cmd,
                                          const RefLine& ref,
                                          const PathGeneratorConfig& cfg,
-                                         const KinematicLimits& limits);
+                                         const KinematicLimits& limits,
+                                         double lane_width);
 
 #endif

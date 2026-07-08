@@ -373,18 +373,18 @@ void FilterByCurvature(std::vector<FrenetPath>& combined,
 // =========================================================
 
 // AVOID 모드는 PlannerCommand.avoidance_d_offset을 그대로 lateral 목표 중심으로 사용.
-// LANE_CHANGE_*는 물리적 차선폭 파라미터가 아직 설정에 없어 TODO로 남김.
-double ResolveLateralOffset(const PlannerCommand& cmd) {
+// LANE_CHANGE_*는 d 양의 방향이 좌측(FrenetToCartesian의 n_r 정의와 동일)이므로
+// LEFT는 +lane_width, RIGHT는 -lane_width.
+double ResolveLateralOffset(const PlannerCommand& cmd, double lane_width) {
     switch (cmd.mode) {
         case AVOID:
             return cmd.avoidance_d_offset;
 
         case LANE_CHANGE_LEFT:
+            return lane_width;
+
         case LANE_CHANGE_RIGHT:
-            // TODO(추후 개발 필요): lane_width 설정값이 config에 추가되면
-            // target_lane * lane_width 로 목표 오프셋을 계산해야 함.
-            // 지금은 차선 변경 오프셋을 반영하지 않고 0으로 둔다.
-            return 0.0;
+            return -lane_width;
 
         default:
             return 0.0;  // 차선 중앙 유지
@@ -395,10 +395,11 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
                                          const PlannerCommand& cmd,
                                          const RefLine& ref,
                                          const PathGeneratorConfig& cfg,
-                                         const KinematicLimits& limits) {
+                                         const KinematicLimits& limits,
+                                         double lane_width) {
     // 1. lateral 후보 (필요 시 목표 오프셋만큼 d1 격자를 평행이동)
     PathGeneratorConfig lateral_cfg = cfg;
-    const double d_offset = ResolveLateralOffset(cmd);
+    const double d_offset = ResolveLateralOffset(cmd, lane_width);
     lateral_cfg.lateral_d1.min += d_offset;
     lateral_cfg.lateral_d1.max += d_offset;
 

@@ -2,7 +2,7 @@ behavior: {update_rate: 10.0}
 map:
   link_set_path: "/home/autonav/mpc_ws/src/behavior_planner/src/config/link_set.json"
   node_set_path: "/home/autonav/mpc_ws/src/behavior_planner/src/config/node_set.json"
-route: {route_links_path: "/home/autonav/mpc_ws/src/behavior_planner/src/config/route_links.yaml"}
+route: {route_links_path: "/home/autonav/mpc_ws/src/behavior_planner/src/config/route_links_1.yaml"}
 traffic_light: {mock_path: "/home/autonav/mpc_ws/src/behavior_planner/src/config/traffic_light_mock.yaml", use_mock: true}
 vehicle: {length: 4.7, width: 1.85, wheelbase: 2.7}
 lane: {default_width: 3.5}

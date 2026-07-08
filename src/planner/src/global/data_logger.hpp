@@ -7,6 +7,7 @@
 #include "frenet/path_generator.hpp"
 #include "frenet/cost.hpp"
 #include "frenet/collision_checker.hpp"
+#include "global/behavior_bridge.hpp"
 
 // =========================================================
 // waypoint 파일("x y" 또는 "x,y") -> RefLine
@@ -24,6 +25,7 @@ void LoadParams(ros::NodeHandle& pnh,
                  CostWeights& cost_weights,
                  VehicleShape& vehicle_shape,
                  CollisionCheckConfig& collision_cfg,
-                 double& target_speed);
+                 double& target_speed,
+                 BehaviorBridgeConfig& bridge_cfg);
 
 #endif

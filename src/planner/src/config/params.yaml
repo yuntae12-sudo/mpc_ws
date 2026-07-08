@@ -12,6 +12,13 @@ planner:
 
   default_target_speed: 10.0    # PlannerCommand.target_speed 고정값 [m/s]
 
+  # --- behavior_bridge.hpp: /behavior/context 연동 ------------
+  lane_width: 3.5                  # [m] 차선변경 목표 d 오프셋. link_set.json 전체 634개 링크가
+                                    # 예외 없이 width_start=width_end=3.5 라 실측값 그대로 사용.
+  behavior_context_timeout: 0.5    # [s] 이보다 오래된 BehaviorContext는 폐기하고 LANE_KEEPING 폴백.
+  emergency_stop_buffer: 12.0      # [m] EMERGENCY_STOP인데 stop_before_s가 sentinel(1e9, 정지선
+                                    # 미탐지)이면 ego 현재 s + 이 값을 대신 정지 목표로 사용.
+
   # --- PathGeneratorConfig (path_generator.hpp) ---------------
   # 논문 Sec.IV-A/V-A/V-B의 후보 샘플링 격자. 각 항목은 (min, max, step).
   path_generator:
@@ -37,6 +44,17 @@ planner:
     ks: 1.0        # longitudinal 목표위치 가중치 (ks*delta_s^2)
     ks_dot: 1.0    # longitudinal 목표속도 가중치 (ks_dot*delta_s_dot^2)
     klat: 1.0      # Sec.VI: C_tot = klat*C_lat + klon*C_lon
+    klon: 1.0
+
+  # EMERGENCY_STOP 전용 가중치 — 승차감(jerk)보다 "가장 빨리 정지"를 우선하도록
+  # kt(시간비용)를 크게 키움. behavior_bridge.hpp가 EMERGENCY 모드일 때만 이걸 씀.
+  cost_weights_emergency:
+    kj: 1.0
+    kt: 20.0
+    kd: 1.0
+    ks: 1.0
+    ks_dot: 1.0
+    klat: 1.0
     klon: 1.0
 
   # --- VehicleShape (collision_checker.hpp) -------------------
