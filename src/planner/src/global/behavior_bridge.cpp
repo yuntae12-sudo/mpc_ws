@@ -8,11 +8,37 @@ namespace {
 // 1e9(sentinel)로 남는다 (behavior_planner/src/context/behavior_context.hpp:7).
 constexpr double kStopBeforeSSentinel = 1e8;
 
+// 자차 전방(같은 차선)에서 가장 가까운 장애물의 s를 찾는다. EMERGENCY의
+// 물리 기반 stop_position이 실제 장애물을 넘어서 계산되는 걸 막기 위한
+// 용도로만 쓰인다 (behavior_bridge.hpp 설계 노트 참고). 못 찾으면 1e9.
+double FindNearestObstacleSAhead(const FrenetState& ego_start,
+                                  const std::vector<ObjectInfo>& obstacles,
+                                  const RefLine& ref,
+                                  double lane_width) {
+    double nearest_s = 1e9;
+    for (const auto& obj : obstacles) {
+        CartesianState ocs{};
+        ocs.x = obj.x;
+        ocs.y = obj.y;
+        ocs.yaw = obj.heading;
+
+        double s, s_dot, s_ddot, d, d_prime, d_pprime;
+        CartesianToFrenet(ref, ocs, s, s_dot, s_ddot, d, d_prime, d_pprime);
+
+        const bool ahead = s > ego_start.s;
+        const bool same_lane = std::abs(d - ego_start.d) < lane_width * 0.5;
+        if (ahead && same_lane) nearest_s = std::min(nearest_s, s);
+    }
+    return nearest_s;
+}
+
 }  // namespace
 
 PlannerCommand BuildCommandFromContext(const behavior_planner::BehaviorContext& ctx,
                                         const FrenetState& ego_start,
-                                        const BehaviorBridgeConfig& cfg) {
+                                        const BehaviorBridgeConfig& cfg,
+                                        const std::vector<ObjectInfo>& obstacles,
+                                        const RefLine& ref) {
     PlannerCommand cmd{};
     cmd.target_speed = ctx.desired_speed;
     if (ctx.max_speed > 0.0) cmd.target_speed = std::min(cmd.target_speed, ctx.max_speed);
@@ -104,9 +130,25 @@ PlannerCommand BuildCommandFromContext(const behavior_planner::BehaviorContext& 
         cmd.stop_position = ctx.stop_before_s;
     } else if (mode == EMERGENCY) {
         cmd.target_speed = 0.0;
-        cmd.stop_position = (ctx.stop_before_s >= kStopBeforeSSentinel)
-                                 ? ego_start.s + cfg.emergency_stop_buffer
-                                 : ctx.stop_before_s;
+        if (ctx.stop_before_s >= kStopBeforeSSentinel) {
+            // FSM은 "EMERGENCY 상황"만 알려주고 물리적 정지거리는 안 준다 (TTC/
+            // emergency_risk 트리거는 stop_before_s를 sentinel로 남겨둠 - hard_rule_filter.cpp
+            // 확인됨). planner가 현재 속도와 차량의 감속 한계로 직접 계산한다.
+            const double stop_distance = (ego_start.s_d * ego_start.s_d) /
+                (2.0 * cfg.emergency_max_decel * cfg.emergency_decel_margin);
+            double stop_s = ego_start.s + stop_distance + cfg.emergency_reaction_buffer;
+
+            // 위 값이 실제 장애물을 넘어서면 모든 STOP 후보가 장애물을 관통해야
+            // 해서 FilterByCollision이 전부 걸러내는 역설이 생긴다(실차 검증,
+            // 2026-07-08). 장애물이 있으면 그 앞에서 멈추도록 clamp.
+            const double obstacle_s = FindNearestObstacleSAhead(ego_start, obstacles, ref, cfg.lane_width);
+            if (obstacle_s < 1e8) {
+                stop_s = std::min(stop_s, obstacle_s - cfg.emergency_obstacle_margin);
+            }
+            cmd.stop_position = stop_s;
+        } else {
+            cmd.stop_position = ctx.stop_before_s;
+        }
     }
 
     return cmd;

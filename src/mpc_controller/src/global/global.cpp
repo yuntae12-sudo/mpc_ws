@@ -26,3 +26,10 @@ std::mutex ego_mutex;
 
 // CSV 경로 기본값 (PlanningControl 과 동일)
 std::string g_waypoint_file_path = "src/main/config/track_log_recorded_final.csv";
+
+// planner 외부 궤적 (v5: 유일한 주행 소스)
+ExternalTrajectory external_traj;
+ros::Time          external_traj_stamp;
+std::mutex         external_traj_mutex;
+ReferencePath      external_ref_last_good;
+ros::Time          external_ref_last_good_stamp;

@@ -45,7 +45,28 @@ struct KinematicLimits {
     double max_lateral_accel;      // |d̈| 허용치 [m/s^2]
     double max_longitudinal_accel; // |s̈| 허용치 [m/s^2]
     double max_curvature;          // |kappa_x| 허용치 [1/m] (차량 최소 회전반경 역수)
+
+    // Stopping(quintic)/VelocityKeeping(quartic) 요청이 물리적으로 불가능해서
+    // 격자 후보가 전부 FilterLongitudinalByAcceleration에 걸려도, "한계 안에서
+    // 만들 수 있는 최선"의 creep 후보 하나는 항상 남긴다(0 generated 방지).
+    // 첨두가속도가 평균보다 큰 만큼 여유를 두는 값 - quartic(시작/끝 가속도=0)은
+    // peak/avg=1.5로 대수적으로 고정이라 margin=0.5면 peak=1.5*0.5*max=2.25,
+    // max_longitudinal_accel(3.0) 대비 25% 여유(수치 검증됨). EMERGENCY stop
+    // distance 계산에 쓰던 emergency_decel_margin과 같은 현상이라 값도 재사용.
+    double creep_accel_margin = 0.5;
 };
+
+// =========================================================
+// 저속/고속 모드 전환 임계치 (논문 Sec.IV-B 명시값, 2.0 m/s)
+//
+// 저속에서는 요레이트가 횡가속도가 아니라 "경로의 곡률"에 좌우되므로,
+// 횡방향을 시간 t가 아니라 호길이 s에 대한 quintic d(s)로 계획하는 게
+// 물리적으로 맞다는 게 Sec.IV-B의 핵심 주장이다. |start.s_d| < 이 값이면
+// ResolveManeuver가 GenerateLateralCandidates(고속) 대신
+// GenerateLowSpeedCombinedCandidates(저속)를 쓴다.
+// =========================================================
+
+constexpr double kLowSpeedThreshold = 2.0;  // [m/s]
 
 // =========================================================
 // [Sec.IV-A] 횡방향(lateral) 후보 집합 생성 — 고속 모드 전용 (d(t) quintic)
@@ -55,13 +76,40 @@ struct KinematicLimits {
 // MakeQuintic으로 각 후보를 만들고, cfg.dt 간격으로 샘플링해 FrenetPath.d/d_d/d_dd,
 // t 를 채운다. (FrenetPath.s 계열은 비워둔 채로 반환 — longitudinal과 결합 시 채워짐)
 //
-// TODO(추후 개발 필요, FSM 저속 처리와 함께): Sec.IV-B의 저속 모드
-// (d(s) quintic, 비홀로노믹 곡률 제약)는 아직 미구현. 지금은 항상 고속
-// (d(t)) 모드만 생성한다.
+// |start.s_d| >= kLowSpeedThreshold 일 때만 ResolveManeuver가 이 함수를 쓴다.
+// 저속은 GenerateLowSpeedCombinedCandidates 참고.
 // =========================================================
 
 std::vector<FrenetPath> GenerateLateralCandidates(const FrenetState& start,
                                                    const PathGeneratorConfig& cfg);
+
+// =========================================================
+// [Sec.IV-B] 저속 모드 — 횡방향을 호길이 s에 대한 quintic d(s)로 계획
+//
+// 고속처럼 "lateral 독립 생성 -> 같은 T로 결합" 구조를 쓸 수 없다 — d(s)의
+// 매개변수(호길이)가 longitudinal 후보마다 실제로 커버하는 거리(Δs =
+// lon.s.back() - start.s)에 종속되기 때문이다. 그래서 longitudinal 후보
+// 하나하나에 대해 그 Δs로 quintic d(s)를 만들고, 그 후보의 시간 샘플마다
+// s(t)를 대입해 d/d'/d''를 뽑아 바로 완전한 FrenetPath로 조립한다
+// (별도 CombineLateralLongitudinal 불필요).
+//
+// d'/d''(호길이 미분)는 start.d_prime/d_pprime을 시작조건으로 쓰고, 매 샘플의
+// d_dot/d_ddot(시간미분, FilterLateralByAcceleration/ConvertToCartesianPath가
+// 필요로 함)은 ArcDerivToTimeDeriv(곱셈만 하므로 s_dot=0에서도 안전)로 변환한다.
+//
+// longitudinal 후보의 Δs가 사실상 0(정지 유지)이면 quintic을 만들 수 없으므로
+// 대신 d=start.d를 그대로 유지하는 단일 후보를 추가한다(곡률/횡가속도 0).
+//
+// longitudinal_set은 이미 FilterLongitudinalByAcceleration을 통과한 상태여야
+// 한다. 반환값은 결합까지 끝난 완전한 FrenetPath 목록 (FilterByCurvature만
+// 이후 별도로 적용하면 됨) — 반환값 안의 횡방향 가속도(|d̈|)는 이 함수 안에서
+// 이미 limits.max_lateral_accel로 valid 여부가 반영된다.
+// =========================================================
+
+std::vector<FrenetPath> GenerateLowSpeedCombinedCandidates(const FrenetState& start,
+                                                            const std::vector<FrenetPath>& longitudinal_set,
+                                                            const PathGeneratorConfig& cfg,
+                                                            const KinematicLimits& limits);
 
 // =========================================================
 // [Sec.V-A] Following — 선두 차량과의 constant-time-gap 추종
@@ -90,9 +138,12 @@ std::vector<FrenetPath> GenerateFollowingCandidates(const FrenetState& start,
 // Following과 동일하게 Δsi × Tj 격자로 quintic 후보 집합 생성.
 // =========================================================
 
+// limits는 요청한 stop_s가 물리적으로 도달 불가능할 때 creep 후보를 만드는 데만 쓰임
+// (헤더 상단 KinematicLimits.creep_accel_margin 설계 노트 참고).
 std::vector<FrenetPath> GenerateStoppingCandidates(const FrenetState& start,
                                                     double stop_s,
-                                                    const PathGeneratorConfig& cfg);
+                                                    const PathGeneratorConfig& cfg,
+                                                    const KinematicLimits& limits);
 
 // =========================================================
 // [Sec.V-A] Merging — 두 차량 sa(t), sb(t) 사이로 병합
@@ -113,9 +164,12 @@ std::vector<FrenetPath> GenerateMergingCandidates(const FrenetState& start,
 // 순회하며 MakeQuartic으로 후보를 만든다.
 // =========================================================
 
+// limits는 요청한 target_speed가 물리적으로 도달 불가능할 때 creep 후보를 만드는 데만 쓰임
+// (헤더 상단 KinematicLimits.creep_accel_margin 설계 노트 참고).
 std::vector<FrenetPath> GenerateVelocityKeepingCandidates(const FrenetState& start,
                                                            double target_speed,
-                                                           const PathGeneratorConfig& cfg);
+                                                           const PathGeneratorConfig& cfg,
+                                                           const KinematicLimits& limits);
 
 // =========================================================
 // [Sec.VI 1단] 결합 전 사전 필터링

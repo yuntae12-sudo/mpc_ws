@@ -24,6 +24,8 @@ void loadMPCParameters(ros::NodeHandle& pnh)
     pnh.param<double>("constraints/steering/max_rate",  p.steering_rate_max, p.steering_rate_max);
     pnh.param<double>("constraints/acceleration/max_forward", p.accel_max, p.accel_max);
     pnh.param<double>("constraints/acceleration/max_reverse", p.accel_min, p.accel_min);
+    pnh.param<double>("constraints/acceleration/max_rate",    p.accel_rate_max, p.accel_rate_max);
+    pnh.param<double>("constraints/acceleration/deadband",    p.accel_deadband, p.accel_deadband);
     pnh.param<double>("constraints/velocity/min",       p.vel_min, p.vel_min);
     pnh.param<double>("constraints/velocity/max",       p.vel_max, p.vel_max);
 
@@ -33,6 +35,7 @@ void loadMPCParameters(ros::NodeHandle& pnh)
     pnh.param<double>("cost/speed_error",    p.weight_speed_error,   p.weight_speed_error);
     pnh.param<double>("cost/control",        p.weight_control,       p.weight_control);
     pnh.param<double>("cost/control_rate",   p.weight_control_rate,  p.weight_control_rate);
+    pnh.param<double>("cost/control_rate_accel_ratio", p.control_rate_accel_ratio, p.control_rate_accel_ratio);
     pnh.param<double>("cost/terminal",       p.weight_terminal,      p.weight_terminal);
 
     // 솔버
@@ -55,6 +58,11 @@ void loadMPCParameters(ros::NodeHandle& pnh)
     // CSV 파일 경로 (절대/상대 모두 허용)
     pnh.param<std::string>("waypoint_file", g_waypoint_file_path, g_waypoint_file_path);
 
+    // 외부(frenet planner) 궤적 빈 사이클 유예 시간
+    pnh.param<double>("external_trajectory/empty_grace_s",
+                       p.external_empty_grace_s, p.external_empty_grace_s);
+
+    ROS_INFO("[MPC] External trajectory empty grace: %.2fs", p.external_empty_grace_s);
     ROS_INFO("[MPC] Params: horizon=%d dt=%.2f max_iter=%d wheelbase=%.2f freq=%.1fHz",
              p.horizon, p.dt, p.max_iterations, p.wheelbase, p.control_frequency);
     ROS_INFO("[MPC] Weights: path=%.2f head=%.2f speed=%.2f term=%.2f",

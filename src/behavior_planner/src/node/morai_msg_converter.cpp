@@ -34,9 +34,9 @@ TrackedObject MoraiMsgConverter::toTrackedObject(
   object.speed = std::hypot(message.velocity.x, message.velocity.y);
   object.accel = message.acceleration.x * std::cos(object.yaw) +
                  message.acceleration.y * std::sin(object.yaw);
-  // MORAI ObjectStatus.size is treated as (length, width, height).
+  // MORAI ObjectStatus.size is (x=length, y=height, z=width).
   object.length = message.size.x > 0.0 ? message.size.x : 4.5;
-  object.width = message.size.y > 0.0 ? message.size.y : 1.8;
+  object.width = message.size.z > 0.0 ? message.size.z : 1.8;
   return object;
 }
 

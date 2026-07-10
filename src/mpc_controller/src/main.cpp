@@ -28,9 +28,10 @@ int main(int argc, char** argv)
     last_control.delta = 0.0; last_control.accel = 0.0;
 
     // 구독자
-    ros::Subscriber ego_sub      = nh.subscribe("/Ego_topic",   1, CBEgoState);
+    ros::Subscriber ego_sub  = nh.subscribe("/Ego_topic", 1, CBEgoState);
+    ros::Subscriber traj_sub = nh.subscribe("/frenet_planner/trajectory", 1, CBExternalTrajectory);
 
-    ROS_INFO("[MPC] Subscribed: /Ego_topic");
+    ROS_INFO("[MPC] Subscribed: /Ego_topic /frenet_planner/trajectory");
 
     // 발행자
     cmd_pub = nh.advertise<morai_msgs::CtrlCmd>("/ctrl_cmd", 1);

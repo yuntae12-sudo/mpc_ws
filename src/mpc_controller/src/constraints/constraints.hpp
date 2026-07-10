@@ -12,4 +12,8 @@ void clipControl(MPCControl& u, const MPCParams& params);
 void clipSteeringRate(MPCControl& u_cur, const MPCControl& u_prev,
                       double max_rate, double dt);
 
+// accel 변화율 제한 (steering과 대칭 - global.hpp의 accel_rate_max 설계 노트 참고)
+void clipAccelRate(MPCControl& u_cur, const MPCControl& u_prev,
+                   double max_rate, double dt);
+
 #endif // MPC_CONSTRAINTS_HPP

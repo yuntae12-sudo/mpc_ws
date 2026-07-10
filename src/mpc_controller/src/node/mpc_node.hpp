@@ -10,6 +10,9 @@
 // ========================================
 void CBEgoState(const morai_msgs::EgoVehicleStatus::ConstPtr& msg);
 
+// planner(frenet_planner_node)의 /frenet_planner/trajectory 구독 콜백
+void CBExternalTrajectory(const std_msgs::Float32MultiArray::ConstPtr& msg);
+
 // ========================================
 // 제어 루프 (Controller 역할만)
 // ========================================

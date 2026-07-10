@@ -60,7 +60,8 @@ void LoadParams(ros::NodeHandle& pnh,
                  CollisionCheckConfig& collision_cfg,
                  double& target_speed,
                  BehaviorBridgeConfig& bridge_cfg,
-                 double& wheelbase) {
+                 double& wheelbase,
+                 HysteresisConfig& hysteresis_cfg) {
     pnh.param<double>("planner/path_generator/lateral_d1/min",   path_cfg.lateral_d1.min,   -3.0);
     pnh.param<double>("planner/path_generator/lateral_d1/max",   path_cfg.lateral_d1.max,    3.0);
     pnh.param<double>("planner/path_generator/lateral_d1/step",  path_cfg.lateral_d1.step,   0.5);
@@ -78,6 +79,7 @@ void LoadParams(ros::NodeHandle& pnh,
     pnh.param<double>("planner/kinematic_limits/max_lateral_accel",      limits.max_lateral_accel,      3.0);
     pnh.param<double>("planner/kinematic_limits/max_longitudinal_accel", limits.max_longitudinal_accel, 3.0);
     pnh.param<double>("planner/kinematic_limits/max_curvature",          limits.max_curvature,          0.1704);
+    pnh.param<double>("planner/kinematic_limits/creep_accel_margin",     limits.creep_accel_margin,     0.5);
 
     pnh.param<double>("planner/cost_weights/kj",     cost_weights.kj,     1.0);
     pnh.param<double>("planner/cost_weights/kt",     cost_weights.kt,     1.0);
@@ -92,7 +94,7 @@ void LoadParams(ros::NodeHandle& pnh,
 
     pnh.param<double>("planner/collision_check/safety_margin",      collision_cfg.safety_margin,      0.3);
     pnh.param<double>("planner/collision_check/margin_growth_rate", collision_cfg.margin_growth_rate, 0.1);
-    pnh.param<double>("planner/collision_check/reactive_lookahead", collision_cfg.reactive_lookahead, 8.0);
+    pnh.param<double>("planner/collision_check/reactive_lookahead", collision_cfg.reactive_lookahead, 3.0);
 
     // FSM이 아직 없을 때 쓰는 고정 목표속도 (config/params.yaml엔 없던 값 -
     // 이 검증 노드 전용 파라미터라 여기서만 기본값을 관리)
@@ -101,9 +103,19 @@ void LoadParams(ros::NodeHandle& pnh,
     // CBEgoState의 kappa 추정(자전거 모델)에 쓰는 축거. mpc_controller/mpc_params.yaml과 동일 값으로 유지.
     pnh.param<double>("planner/wheelbase", wheelbase, 3.0);
 
+    pnh.param<double>("planner/hysteresis/margin_fraction_velocity_keeping",
+                       hysteresis_cfg.margin_fraction_velocity_keeping, 0.10);
+    pnh.param<double>("planner/hysteresis/margin_fraction_stopping",
+                       hysteresis_cfg.margin_fraction_stopping, 0.05);
+    pnh.param<double>("planner/hysteresis/margin_fraction_emergency",
+                       hysteresis_cfg.margin_fraction_emergency, 0.0);
+
     pnh.param<double>("planner/lane_width",              bridge_cfg.lane_width,              3.5);
     pnh.param<double>("planner/behavior_context_timeout",bridge_cfg.context_timeout,         0.5);
-    pnh.param<double>("planner/emergency_stop_buffer",   bridge_cfg.emergency_stop_buffer,   12.0);
+    pnh.param<double>("planner/comfort_longitudinal_accel", bridge_cfg.comfort_longitudinal_accel, 1.5);
+    pnh.param<double>("planner/emergency_decel_margin",     bridge_cfg.emergency_decel_margin,     0.5);
+    pnh.param<double>("planner/emergency_reaction_buffer",  bridge_cfg.emergency_reaction_buffer,  3.0);
+    pnh.param<double>("planner/emergency_obstacle_margin",  bridge_cfg.emergency_obstacle_margin,  3.0);
 
     pnh.param<double>("planner/cost_weights_emergency/kj",     bridge_cfg.emergency_cost_weights.kj,     1.0);
     pnh.param<double>("planner/cost_weights_emergency/kt",     bridge_cfg.emergency_cost_weights.kt,     20.0);

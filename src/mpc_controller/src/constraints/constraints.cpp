@@ -22,3 +22,11 @@ void clipSteeringRate(MPCControl& u_cur, const MPCControl& u_prev,
     diff = clip(diff, -max_step, max_step);
     u_cur.delta = u_prev.delta + diff;
 }
+
+void clipAccelRate(MPCControl& u_cur, const MPCControl& u_prev,
+                   double max_rate, double dt) {
+    double max_step = max_rate * dt;
+    double diff = u_cur.accel - u_prev.accel;
+    diff = clip(diff, -max_step, max_step);
+    u_cur.accel = u_prev.accel + diff;
+}

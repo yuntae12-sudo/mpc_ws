@@ -27,6 +27,7 @@ void LoadParams(ros::NodeHandle& pnh,
                  CollisionCheckConfig& collision_cfg,
                  double& target_speed,
                  BehaviorBridgeConfig& bridge_cfg,
-                 double& wheelbase);
+                 double& wheelbase,
+                 HysteresisConfig& hysteresis_cfg);
 
 #endif

@@ -2,7 +2,10 @@
 # MPC Configuration
 # =========================================================
 
-control_frequency: 20.0
+# planner(frenet_planner_node)의 planning_frequency(10Hz)와 맞춤 - 다르면
+# MPC가 실제로 새 경로를 못 받은 사이클에도 낡은 스냅샷을 재사용하면서, dt(0.1)를
+# 가정한 rate-limit 수식(steering/accel)의 실제 경과시간과도 어긋나 잡음이 커짐.
+control_frequency: 10.0
 
 mpc:
   horizon: 14
@@ -15,7 +18,9 @@ cost:
   heading_error: 3.0      # 6.0→3.0: 과도한 heading 보정이 오버슈트 유발
   speed_error: 2.0        # 3.0→2.0: 급정거 방지
   control: 1.25            # 2.0→1.0: steer effort 페널티 완화
-  control_rate: 10.0      # 조향 변화율 억제 (accel은 cost_function 내부에서 *0.05)
+  control_rate: 10.0      # 조향 변화율 억제 (accel은 control_rate_accel_ratio 배)
+  control_rate_accel_ratio: 0.3  # 0.05→0.3: accel이 하드리밋에 매번 부딪히기 전에
+                                 # 완만한 해로 유도 (너무 크면 급정거 반응이 둔해짐)
   terminal: 8.0
 
 solver:
@@ -27,10 +32,16 @@ solver:
 constraints:
   steering:
     max_angle: 0.6981     # ~40 deg [rad]
-    max_rate: 1.0         # 0.4→1.0: 너무 작으면 solver 출력이 매 사이클 잘려서 흔들림
+    max_rate: 1.0         # 2.0으로 올렸더니 yaw/steer/d가 동시에 계속 커지는 발산(runaway)이
+                          # MORAI 실측으로 확인됨 - LTV 선형화 기반 solver가 특정 상황에서
+                          # 조향을 같은 방향으로 계속 더 세게 미는 자기강화 루프에 빠지는
+                          # 것으로 추정. 롤백 (2026-07-10). 직선 추종이 느린 문제는 이 값이
+                          # 아니라 다른 방식(예: cost weight)으로 접근할 것.
   acceleration:
     max_forward: 2.0
     max_reverse: -5.0
+    max_rate: 20.0        # [m/s^3] accel 변화율 한계 - steering_rate와 대칭
+    deadband: 0.15        # [m/s^2] 이 안이면 액셀/브레이크 둘 다 0(관성 주행)
   velocity:
     min: 0.0
     max: 60.0
@@ -48,3 +59,6 @@ planning:
 
 waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path_route1.txt"
 ref_file:      "/home/autonav/mpc_ws/src/mpc_controller/src/config/ref.txt"
+
+external_trajectory:
+  empty_grace_s: 0.4   # [s] planner가 n=0을 내도 이 시간까지는 직전 유효 경로 유지 (CSV 폴백 없음)

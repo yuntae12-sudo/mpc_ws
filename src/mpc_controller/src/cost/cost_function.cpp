@@ -50,13 +50,15 @@ double computeControlEffortCost(const MPCControl& u, double w_steer, double w_ac
 //   같은 weight로 묶으면 gradient 왜곡 → 흔들림/급정거 원인
 // ========================================
 double computeControlRateCost(const MPCControl& u_prev, const MPCControl& u_cur,
-                              double weight)
+                              double weight, double accel_ratio)
 {
     double dd = u_cur.delta - u_prev.delta;
     double da = u_cur.accel - u_prev.accel;
     // steer 변화율: weight 그대로 (조향 흔들림 억제)
-    // accel 변화율: weight * 0.05 (급정거 억제하되 속도 추종 방해 안 함)
-    return weight * dd*dd + (weight * 0.05) * da*da;
+    // accel 변화율: weight * accel_ratio (하드리밋(accel_rate_max)에 매번
+    // 부딪히기 전에 완만한 해로 유도 - global.hpp의 control_rate_accel_ratio
+    // 설계 노트 참고)
+    return weight * dd*dd + (weight * accel_ratio) * da*da;
 }
 
 // ========================================
@@ -82,8 +84,18 @@ double computeTotalCost(
     for (size_t i = 0; i < N; ++i) {
         const MPCState& st = states[i];
 
-        // closest ref 탐색 (window 50으로 확장: 고속 주행 시 ref 놓침 방지)
-        if (R > 0) {
+        if (ref.time_indexed) {
+            // 시간 정렬 참조(planner 외부 궤적, dt 동일) - 예측 스텝 i는
+            // ref[i]와 직접 비교한다. 위치기반 최근접 탐색은 정지/저속
+            // 상태에서 항상 index 0(=아직 안 움직인 지점, 목표속도도 낮음)에
+            // 고정돼 속도오차가 가짜로 0이 되는 교착상태를 만든다 - global.hpp
+            // ReferencePath::time_indexed 설계 노트 참고.
+            // time_offset_steps: ref[0]이 실제로 "지금"보다 몇 스텝 과거인지
+            // 보정 (처리지연/EXTERNAL_GRACE 누적 - global.hpp 설계 노트 참고).
+            const size_t offset = static_cast<size_t>(std::max(0, ref.time_offset_steps));
+            ref_idx = std::min(i + offset, R - 1);
+        } else if (R > 0) {
+            // closest ref 탐색 (window 50으로 확장: 고속 주행 시 ref 놓침 방지)
             double best_d2 = std::numeric_limits<double>::infinity();
             size_t best = ref_idx;
             size_t end = std::min(R, ref_idx + 50);
@@ -109,22 +121,29 @@ double computeTotalCost(
                                           params.weight_control * 0.5);
 
         const MPCControl& u_prev = (i == 0) ? prev_control : controls[i-1];
-        total += computeControlRateCost(u_prev, u_cur, params.weight_control_rate);
+        total += computeControlRateCost(u_prev, u_cur, params.weight_control_rate,
+                                        params.control_rate_accel_ratio);
     }
 
     // Terminal cost
     if (S > 0 && R > 0) {
         const MPCState& st = states.back();
-        double best_d2 = std::numeric_limits<double>::infinity();
-        size_t best = ref_idx;
-        size_t end = std::min(R, ref_idx + 50);
-        for (size_t k = ref_idx; k < end; ++k) {
-            double dx = ref.x_ref[k] - st.x;
-            double dy = ref.y_ref[k] - st.y;
-            double d2 = dx*dx + dy*dy;
-            if (d2 < best_d2) { best_d2 = d2; best = k; }
+
+        if (ref.time_indexed) {
+            const size_t offset = static_cast<size_t>(std::max(0, ref.time_offset_steps));
+            ref_idx = std::min(S - 1 + offset, R - 1);
+        } else {
+            double best_d2 = std::numeric_limits<double>::infinity();
+            size_t best = ref_idx;
+            size_t end = std::min(R, ref_idx + 50);
+            for (size_t k = ref_idx; k < end; ++k) {
+                double dx = ref.x_ref[k] - st.x;
+                double dy = ref.y_ref[k] - st.y;
+                double d2 = dx*dx + dy*dy;
+                if (d2 < best_d2) { best_d2 = d2; best = k; }
+            }
+            ref_idx = best;
         }
-        ref_idx = best;
 
         double v_target = ref.v_ref[ref_idx];
         total += computePathErrorCost   (st, ref, ref_idx, params.weight_terminal);

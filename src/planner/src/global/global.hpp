@@ -68,8 +68,16 @@ struct FrenetState {
 
     // Lateral (Perpendicular to center line)
     double d;       // Lateral Offset
-    double d_d;     // d_dot: speed
-    double d_dd;    // d_ddot: accelration
+    double d_d;     // d_dot: speed (시간미분, 고속 d(t) 후보 생성에 사용)
+    double d_dd;    // d_ddot: accelration (시간미분)
+
+    // d_prime/d_pprime(호길이 미분, d'=dd/ds, d''=d²d/ds²)은 CartesianToFrenet이
+    // 이미 계산해 갖고 있던 값인데, ArcDerivToTimeDeriv로 시간미분(d_d/d_dd) 변환만
+    // 하고 버려지고 있었다. Sec.IV-B 저속 d(s) 후보 생성은 이 값을 "직접" 시작조건
+    // 으로 써야 한다 - TimeDerivToArcDeriv(d_d/s_dot)로 역산하면 저속에서 바로
+    // 그 나눗셈 특이점이 재현되기 때문에, 반드시 원본을 보존해서 넘겨야 한다.
+    double d_prime;   // d'  (arc-length 1차 미분)
+    double d_pprime;  // d'' (arc-length 2차 미분)
 };
 
 // =========================================================

@@ -108,3 +108,29 @@ bool buildReferenceFromWaypoints(
 
     return !out_ref.empty();
 }
+
+// ========================================
+// planner(frenet_planner_node) 외부 궤적 -> ReferencePath
+//   설계 노트는 헤더 참고. horizon(mpc_params.yaml 기준 14) * dt(0.1) = 1.4초
+//   소비창보다 planner의 후보 길이(2.0~5.0초)가 항상 길어서 패딩 불필요.
+// ========================================
+bool buildReferenceFromExternalTrajectory(
+    const ExternalTrajectory& ext,
+    const MPCParams&          /*params*/,
+    ReferencePath&            out_ref)
+{
+    out_ref.clear();
+    if (ext.x.size() < 2) {
+        ROS_WARN_THROTTLE(1.0, "[MPC] external trajectory too short (size=%zu)", ext.x.size());
+        return false;
+    }
+
+    out_ref.x_ref   = ext.x;
+    out_ref.y_ref   = ext.y;
+    out_ref.yaw_ref = ext.yaw;
+    out_ref.k_ref   = ext.k;
+    out_ref.v_ref   = ext.v;
+    out_ref.time_indexed = true;   // planner의 dt(0.1s)가 MPC dt와 동일 - 시간 인덱스로 정렬됨
+
+    return !out_ref.empty();
+}

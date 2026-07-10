@@ -90,13 +90,17 @@ void ArcDerivToTimeDeriv(double s_dot, double s_ddot,
 }
 
 // =========================================================
-// CartesianToFrenet  (고속 모드 전용 — 헤더 주석 참고)
+// CartesianToFrenet
 //
 // s0는 FindClosestS(Newton-Raphson)로 구하고, kappa_x/a_x는 이미 입력으로
 // 주어져 있으므로 식(4),(6),(9),(7),a_x식에 "대입"만 하면 되고 별도의
-// 역산(비선형 풀이)이 필요 없다. 단, s_dot을 구하는 식(7) 역산과
-// s_ddot을 구하는 a_x식 역산은 (1-kappa_r*d), cos(delta_theta), s_dot이
-// 모두 0이 아니어야 하는 고속 모드 전제가 있다.
+// 역산(비선형 풀이)이 필요 없다.
+//
+// 저속(v≈0)에서도 안전: 나눗셈 분모는 (1-kappa_r*d)와 cos(delta_theta)뿐이고
+// 둘 다 속도와 무관한 순수 기하량(d가 곡률 중심과 겹치는지, 차량이 경로와
+// 수직으로 틀어졌는지)이다. s_dot(=cs.v*cos_dtheta/one_minus_kd)은 분모가
+// 아니라 분자로만 등장해서, v=0이면 s_dot=0이 0/0이 아니라 깔끔하게 나오고
+// 이어지는 s_ddot 계산의 s_dot^2 항도 그대로 소거된다.
 // =========================================================
 
 void CartesianToFrenet(const RefLine& ref, const CartesianState& cs,
@@ -129,9 +133,6 @@ void CartesianToFrenet(const RefLine& ref, const CartesianState& cs,
              + (one_minus_kd / (cos_dtheta * cos_dtheta)) * delta_theta_prime;
 
     // 식 (7)을 s_dot에 대해 정리: v_x = s_dot*(1-kr d)/cos(dtheta)
-    // TODO(추후 개발 필요, FSM 저속 처리와 함께): cs.v ≈ 0 이면 s_dot ≈ 0이 되어
-    // 아래 s_ddot 계산에서 0/0이 아니라 s_dot^2 항이 사라져 값 자체는 유한하지만,
-    // "저속에서 재투영이 실제로 의미 있는가"는 FSM 설계 이후 다시 검토해야 함.
     s_dot = cs.v * cos_dtheta / one_minus_kd;
 
     // a_x 식을 s_ddot에 대해 정리
@@ -205,15 +206,31 @@ GeometricPath ComputeGeometricPath(const std::vector<double>& s,
     gp.kappa.resize(n, 0.0);
 
     // 식 (1): x = r(s) + d*n_r(s). s_dot/d_prime과 무관하므로 항상 안전.
+    // ref_theta는 저속 구간의 yaw fallback으로 재사용 (아래 참고).
+    std::vector<double> ref_theta(n);
     for (size_t i = 0; i < n; i++) {
         RefPoint rp = Interpolate(ref, s[i]);
         gp.x[i] = rp.x + d[i] * (-std::sin(rp.theta));
         gp.y[i] = rp.y + d[i] * std::cos(rp.theta);
+        ref_theta[i] = rp.theta;
     }
 
     // 이 거리보다 짧은 구간은 저속으로 점들이 거의 겹쳐서 방향을 못 믿는다 -
-    // "무효 처리"가 아니라 "판단 보류"로 직전 값을 그대로 이어받는다.
-    constexpr double kMinSegmentLength = 0.02;  // [m]
+    // "무효 처리"가 아니라 "판단 보류"로 참조선 접선방향(ref_theta)을 대신 쓴다.
+    // 예전엔 "직전 값을 이어받되 i==0이면 0.0"으로 처리했는데, 이게 정지 상태에서
+    // 출발하는(v=0에서 가속하는) 후보의 초반 몇 샘플처럼 "직전 값이 아예 없는" 경우
+    // 하드코딩된 0.0을 실제 방향(예: 90도)과 무관하게 그대로 유지하다가, 속도가
+    // 붙어 진짜 위치 기반 yaw가 계산되는 순간 그 사이에서 가짜 급곡률(kappa)이
+    // 튀어나와 FilterByCurvature가 출발 후보를 전부 무효화하는 버그가 있었다
+    // (실차 검증으로 확인 - 정지 상태에서 차가 아예 출발을 못 함). ref_theta는
+    // s[i]마다 항상 well-defined해서 "직전 값 의존" 문제 자체가 없다.
+    //
+    // 원래 0.02였는데, 이번엔 반대쪽(STOP 직전 저속 tail, v=0.1~0.7m/s)에서
+    // 세그먼트 길이가 0.02보다는 크지만(0.03~0.13m) 위치 노이즈가 그대로
+    // kappa로 증폭되는 걸 실측으로 확인함(kappa=3.1까지, 회전반경 0.3m라는
+    // 뜻이라 명백한 수치 오류). 실측된 실패 구간(최대 0.13m)을 여유 있게
+    // 덮도록 0.2로 올림 - 실제 커브 구간(seg_len 0.7m+)에는 영향 없음.
+    constexpr double kMinSegmentLength = 0.2;  // [m]
 
     for (size_t i = 0; i < n; i++) {
         double dx, dy;
@@ -224,7 +241,7 @@ GeometricPath ComputeGeometricPath(const std::vector<double>& s,
         if (std::hypot(dx, dy) > kMinSegmentLength) {
             gp.yaw[i] = std::atan2(dy, dx);
         } else {
-            gp.yaw[i] = (i > 0) ? gp.yaw[i - 1] : 0.0;
+            gp.yaw[i] = ref_theta[i];
         }
     }
 

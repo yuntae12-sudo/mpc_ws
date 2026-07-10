@@ -15,6 +15,7 @@ static void projectControls(std::vector<MPCControl>& controls,
     for (auto& u : controls) {
         clipControl(u, params);
         clipSteeringRate(u, u_prev, params.steering_rate_max, params.dt);
+        clipAccelRate(u, u_prev, params.accel_rate_max, params.dt);
         u_prev = u;
     }
 }

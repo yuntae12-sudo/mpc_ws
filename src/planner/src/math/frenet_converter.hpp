@@ -52,7 +52,8 @@ void ArcDerivToTimeDeriv(double s_dot, double s_ddot,
 // =========================================================
 // [역변환] Cartesian -> Frenet
 // 논문 Sec.VI 마지막 문단의 내용.
-// 현재는 고속 모드 전용 (저속 처리는 추후 개발 필요).
+// 저속(v≈0)에서도 안전 - 나눗셈 분모가 속도와 무관한 순수 기하량뿐이라
+// s_dot=0이 0/0 없이 그대로 나온다 (검증 노트는 .cpp 함수 상단 참고).
 // =========================================================
 
 void CartesianToFrenet(const RefLine& ref, const CartesianState& cs,
