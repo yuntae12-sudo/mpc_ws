@@ -1,0 +1,14 @@
+network:
+  host_ip: "127.0.0.1"       # 이 프로세스가 bind할 IP (수신용)
+  user_ip: "127.0.0.1"       # MORAI SIM으로 송신할 목적지 IP
+
+  ctrl_cmd_host_port: 9093
+  ctrl_cmd_dst_port: 9094
+  collision_host_port: 9091
+  collision_dst_port: 9092
+  competition_host_port: 908  # 미사용
+  competition_dst_port: 909   # 미사용
+  ego_vehicle_host_port: 910
+  ego_vehicle_dst_port: 911   # ego_info_receiver(ground truth)가 구독할 포트
+  object_info_host_port: 7605
+  object_info_dst_port: 7505

@@ -1,5 +1,11 @@
 build/
 devel/
+build_isolated/
+devel_isolated/
 .catkin_workspace
 *.pyc
 __pycache__/
+
+# 빌드 산출물/서드파티 바이너리 (다운로드/빌드로 재생성 가능, 커밋 대상 아님)
+src/mpc_controller/build_viz/
+src/mpc_controller/third_party/

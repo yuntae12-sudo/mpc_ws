@@ -1,5 +1,0 @@
-<launch>
-  <node pkg="mpc_node" type="mpc_node" name="mpc_node" output="screen">
-    <rosparam command="load" file="$(find mpc_node)/src/config/mpc_params.yaml" />
-  </node>
-</launch>

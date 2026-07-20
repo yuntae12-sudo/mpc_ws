@@ -12,21 +12,6 @@
 #include <iostream>
 #include <array>
 
-#include <ros/ros.h>
-#include <morai_msgs/CtrlCmd.h>
-#include <morai_msgs/EgoVehicleStatus.h>
-
-// ========================================
-// 기본 구조체
-// ========================================
-
-// CSV에서 로드되는 reference waypoint
-struct Waypoint {
-    double x = 0.0;
-    double y = 0.0;
-    double curvature = 0.0;
-};
-
 // ========================================
 // 차량 상태 (MPC State)
 // ========================================
@@ -105,17 +90,6 @@ struct MPCParams {
     double lr_min       = 1e-4;  // 최소 학습률
     double convergence_eps = 1e-3;
     int    line_search_steps = 6;
-
-    // 경로/속도 plan
-    int    ref_window      = 60;   // 현재 위치 앞쪽으로 사용할 waypoint 수
-    double target_vel      = 60.0 / 3.6;  // 기본 목표 속도 [m/s]
-    double curve_vel_sharp = 30.0 / 3.6;
-    double curve_vel_mid   = 35.0 / 3.6;
-    double curve_vel_mild  = 45.0 / 3.6;
-    double curve_th_sharp  = 0.01;
-    double curve_th_mid    = 0.004;
-    double curve_th_mild   = 0.001;
-    double curve_lookahead_m = 15.0;  // [m] 이 거리 안에 더 급한 커브가 있으면 미리 그 커브 속도로 감속
 };
 
 // ========================================
@@ -126,23 +100,7 @@ struct MPCParams {
 extern MPCState  ego;
 extern MPCControl last_control;
 
-// 경로/맵 데이터
-extern std::vector<Waypoint> waypoints;
-
 // 파라미터
 extern MPCParams mpc_params;
-
-// /Ego_topic 최초 수신 여부 (수신 전엔 정지 명령만 발행)
-extern bool ego_received;
-
-// 진단/플래그
-extern int  closest_waypoint_idx;
-
-// ROS
-extern ros::Publisher cmd_pub;
-extern std::mutex ego_mutex;
-
-// CSV 경로
-extern std::string g_waypoint_file_path;
 
 #endif // MPC_GLOBAL_HPP

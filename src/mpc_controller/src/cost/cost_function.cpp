@@ -61,7 +61,18 @@ double computeControlRateCost(const MPCControl& u_prev, const MPCControl& u_cur,
 
 // ========================================
 // trajectory 전체 cost
+//
+// dt 정규화:
+//   mpc_params.yaml의 모든 stage 가중치는 kTunedDt(=0.1, 최초 튜닝 시점의 dt)를
+//   기준으로 맞춰져 있다. horizon/dt를 바꿔도 물리적으로 같은 궤적이면 cost 균형이
+//   유지되도록, "적분류" 항(path/heading/speed/effort)은 dt에 비례, "미분류" 항
+//   (control_rate, Δu/Δt의 이산 근사)은 dt에 반비례로 스케일한다.
+//   (dt=kTunedDt인 경우 두 스케일 모두 1.0이라 기존 튜닝 값과 완전히 동일하게 동작)
 // ========================================
+namespace {
+constexpr double kTunedDt = 0.1;
+}
+
 double computeTotalCost(
     const std::vector<MPCState>&   states,
     const std::vector<MPCControl>& controls,
@@ -76,55 +87,45 @@ double computeTotalCost(
     size_t S = states.size();
     size_t R = ref.size();
 
-    size_t ref_idx = 0;
+    const double dt_scale   = params.dt / kTunedDt;   // 적분류 stage cost
+    const double rate_scale = kTunedDt / params.dt;   // 미분류 rate cost
+
+    // ref는 main.cpp의 ToReferencePath()가 이미 MPC의 dt로 시간 정렬(time-aligned)
+    // 재샘플링해서 넘긴다 (ref[i] == "지금부터 i*dt초 후에 있어야 할 목표").
+    // 예전엔 여기서 상태의 현재 위치에 가장 가까운 ref 점을 매 스텝 새로 검색했는데,
+    // Frenet 로컬 플래너가 매 사이클 "지금 이 순간"의 ego 상태에서 새로 경로를
+    // 만들다 보니, 정지 상태로 시작하면 ref[0]의 목표 속도도 0이 되어 "제자리에
+    // 가만히 있기"가 위치/속도 오차 모두 0인 완벽한 해가 되어버려 출발 자체를
+    // 못 하는 국소최소값에 빠지는 문제가 실측으로 확인됐다. 시간 인덱스로 직접
+    // 대응시키면 "가만히 있는" 상태도 그 시간에 도달해 있어야 할 목표(더 앞선
+    // 위치/속도)와 비교되므로 이 함정이 사라진다.
 
     // Stage costs (i = 0 .. N-1)
     for (size_t i = 0; i < N; ++i) {
         const MPCState& st = states[i];
+        const size_t ref_idx = (R > 0) ? std::min(i, R - 1) : 0;
 
-        // closest ref 탐색 (window 50으로 확장: 고속 주행 시 ref 놓침 방지)
-        if (R > 0) {
-            double best_d2 = std::numeric_limits<double>::infinity();
-            size_t best = ref_idx;
-            size_t end = std::min(R, ref_idx + 50);
-            for (size_t k = ref_idx; k < end; ++k) {
-                double dx = ref.x_ref[k] - st.x;
-                double dy = ref.y_ref[k] - st.y;
-                double d2 = dx*dx + dy*dy;
-                if (d2 < best_d2) { best_d2 = d2; best = k; }
-            }
-            ref_idx = best;
-        }
-
-        double v_target = (R > 0) ? ref.v_ref[ref_idx] : params.target_vel;
-        total += computePathErrorCost   (st, ref, ref_idx, params.weight_path_error);
-        total += computeHeadingErrorCost(st, ref, ref_idx, params.weight_heading_error);
-        total += computeSpeedErrorCost  (st, v_target,     params.weight_speed_error);
+        // R==0 분기는 solveMPC가 ref.empty()를 미리 걸러서 실질적으로 도달하지 않음.
+        double v_target = (R > 0) ? ref.v_ref[ref_idx] : 0.0;
+        total += dt_scale * computePathErrorCost   (st, ref, ref_idx, params.weight_path_error);
+        total += dt_scale * computeHeadingErrorCost(st, ref, ref_idx, params.weight_heading_error);
+        total += dt_scale * computeSpeedErrorCost  (st, v_target,     params.weight_speed_error);
 
         const MPCControl& u_cur = controls[i];
         // steer effort: weight_control / accel effort: weight_control * 0.5
         // accel은 속도 추종을 위해 어느 정도 자유롭게 두어야 급정거 방지
-        total += computeControlEffortCost(u_cur,
+        total += dt_scale * computeControlEffortCost(u_cur,
                                           params.weight_control,
                                           params.weight_control * 0.5);
 
         const MPCControl& u_prev = (i == 0) ? prev_control : controls[i-1];
-        total += computeControlRateCost(u_prev, u_cur, params.weight_control_rate);
+        total += rate_scale * computeControlRateCost(u_prev, u_cur, params.weight_control_rate);
     }
 
-    // Terminal cost
+    // Terminal cost (마지막 stage와 동일한 시간 인덱스: N-1)
     if (S > 0 && R > 0) {
         const MPCState& st = states.back();
-        double best_d2 = std::numeric_limits<double>::infinity();
-        size_t best = ref_idx;
-        size_t end = std::min(R, ref_idx + 50);
-        for (size_t k = ref_idx; k < end; ++k) {
-            double dx = ref.x_ref[k] - st.x;
-            double dy = ref.y_ref[k] - st.y;
-            double d2 = dx*dx + dy*dy;
-            if (d2 < best_d2) { best_d2 = d2; best = k; }
-        }
-        ref_idx = best;
+        const size_t ref_idx = std::min(N > 0 ? N - 1 : 0, R - 1);
 
         double v_target = ref.v_ref[ref_idx];
         total += computePathErrorCost   (st, ref, ref_idx, params.weight_terminal);

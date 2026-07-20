@@ -5,8 +5,9 @@
 control_frequency: 20.0
 
 mpc:
-  horizon: 14
-  dt: 0.1
+  horizon: 28
+  dt: 0.05             # control_frequency(20Hz=50ms)와 정합. 이전 dt=0.1은 실제 루프 주기의 2배라
+                        # clipSteeringRate의 max_step(=max_rate*dt)이 매 사이클 2배로 허용되던 버그가 있었음.
   max_iterations: 25
   wheelbase: 3.0
 
@@ -15,11 +16,16 @@ cost:
   heading_error: 3.0      # 6.0→3.0: 과도한 heading 보정이 오버슈트 유발
   speed_error: 2.0        # 3.0→2.0: 급정거 방지
   control: 1.25            # 2.0→1.0: steer effort 페널티 완화
-  control_rate: 10.0      # 조향 변화율 억제 (accel은 cost_function 내부에서 *0.05)
+  control_rate: 30.0      # 조향 변화율 억제 (accel은 cost_function 내부에서 *0.05)
   terminal: 8.0
 
 solver:
-  lr_init: 0.05
+  # 0.05는 완만한 직선 구간에선 충분했지만, 코너처럼 heading_ref가 horizon 안에서
+  # 크게 꺾이는 경우 25 iteration 안에 충분히 수렴하지 못해 조향이 덜 꺾이는
+  # 문제가 있었다(실측: 목표 heading 변화 0.45rad 중 0.16rad를 못 따라감).
+  # lr_init을 0.20으로 올리면 같은 iteration 수/솔브타임(~1ms)에서 훨씬 더
+  # 수렴해 heading 추종 잔차가 크게 줄어든다(standalone 검증 완료).
+  lr_init: 0.20
   lr_min: 0.0001
   convergence_eps: 0.001
   line_search_steps: 7
@@ -35,16 +41,5 @@ constraints:
     min: 0.0
     max: 60.0
 
-planning:
-  ref_window: 700
-  target_vel: 10.0
-  curve_vel_sharp: 4.0
-  curve_vel_mid:   5.5
-  curve_vel_mild:  7.0
-  curve_th_sharp:  0.080
-  curve_th_mid:    0.035
-  curve_th_mild:   0.015
-  curve_lookahead_m: 15.0  # [m] 이 거리 안에 더 급한 커브가 있으면 미리 그 속도로 감속
-
-waypoint_file: "/home/autonav/mpc_ws/src/mpc_controller/src/config/path_route1.txt"
-ref_file:      "/home/autonav/mpc_ws/src/mpc_controller/src/config/ref.txt"
+# waypoint 직접 추종 + 곡률 기반 감속은 frenet_planner로 이전됨
+# (frenet_planner/config/params.yaml의 planner/curve_speed, waypoint_file 참고)
