@@ -12,13 +12,6 @@ find_package(yaml-cpp REQUIRED)
 find_package(Threads REQUIRED)
 
 # ========================================
-# rerun.io 실시간 시각화 (개발 전용, 기본 OFF)
-# 대회 제출 빌드에서는 반드시 OFF로 두어야 한다 (ROS는 안 쓰지만, 자체 빌드에
-# 불필요한 third-party 의존성을 늘리지 않기 위함).
-# ========================================
-option(ENABLE_RERUN_VIZ "Enable rerun.io live visualization (dev only)" OFF)
-
-# ========================================
 # include 경로
 # ========================================
 include_directories(
@@ -51,20 +44,12 @@ add_executable(mpc_node
   src/frenet_planner/frenet/collision_checker.cpp
   src/frenet_planner/math/polynomial.cpp
   src/frenet_planner/math/frenet_converter.cpp
-  src/viz/rerun_viz.cpp
 )
 
 target_link_libraries(mpc_node
   yaml-cpp
   Threads::Threads
 )
-
-if(ENABLE_RERUN_VIZ)
-  message(STATUS "ENABLE_RERUN_VIZ=ON: rerun.io 실시간 시각화 포함 (개발용)")
-  add_subdirectory(third_party/rerun_cpp_sdk)
-  target_link_libraries(mpc_node rerun_sdk)
-  target_compile_definitions(mpc_node PRIVATE ENABLE_RERUN_VIZ)
-endif()
 
 # 실행 위치(cwd)와 무관하게 config를 찾도록 절대경로를 컴파일 타임에 주입
 target_compile_definitions(mpc_node PRIVATE

@@ -5,7 +5,6 @@
 #include <cstdio>
 
 #include "global/utils.hpp"
-#include "viz/rerun_viz.hpp"
 
 namespace {
 
@@ -60,7 +59,6 @@ bool FrenetPlanner::Init(const std::string& yaml_path) {
         return false;
     }
     ref_loaded_ = true;
-    rerun_viz::Init();
     return true;
 }
 
@@ -139,7 +137,6 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
     EvaluateCosts(candidates, cost_weights_);
 
     const FrenetPath* best = SelectBestPath(candidates);
-    rerun_viz::LogCycle(ego, candidates, best, ref_);
     if (!best) {
         size_t collision_valid = 0;
         for (const auto& p : candidates) if (p.valid) collision_valid++;
