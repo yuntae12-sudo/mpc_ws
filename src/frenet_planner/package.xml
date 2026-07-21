@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>frenet_planner</name>
+  <version>0.1.0</version>
+  <description>
+    Frenet-frame local path planner. 대회 규정상 ROS 금지라 mpc_controller와
+    마찬가지로 ROS 의존성 없는 순수 CMake 패키지로 빌드된다. MORAI SIM으로부터
+    Ego/Object 상태를 UDP로 직접 받아 로컬 경로(quintic/quartic 후보 생성 +
+    곡률/충돌 필터)를 계산하고, 그 결과를 UDP로 mpc_controller에 전달한다.
+  </description>
+
+  <maintainer email="autonav@example.com">AutoNav Team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>libyaml-cpp-dev</build_depend>
+  <exec_depend>libyaml-cpp-dev</exec_depend>
+
+  <export>
+    <build_type>cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,13 @@
+network:
+  host_ip: "127.0.0.1"        # 이 프로세스가 bind할 IP (MORAI ego/object 수신용)
+  mpc_ip: "127.0.0.1"         # mpc_node로 PlannedPath를 보낼 목적지 IP
+
+  # MORAI가 이 값들로 ego/object를 보내도록 설정돼 있어야 함 (기존
+  # mpc_controller/src/udp_network/network.yaml에서 그대로 옮겨온 값 - 이제
+  # mpc_controller는 이 포트들을 안 쓰고 이 프로세스가 대신 bind한다).
+  ego_vehicle_dst_port: 911
+  object_info_dst_port: 7505
+
+  # mpc_node의 udp_network/network.yaml에 있는 planned_path_host_port와
+  # 반드시 같은 값이어야 한다.
+  planned_path_dst_port: 9300

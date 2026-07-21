@@ -55,8 +55,12 @@ double computeControlRateCost(const MPCControl& u_prev, const MPCControl& u_cur,
     double dd = u_cur.delta - u_prev.delta;
     double da = u_cur.accel - u_prev.accel;
     // steer 변화율: weight 그대로 (조향 흔들림 억제)
-    // accel 변화율: weight * 0.05 (급정거 억제하되 속도 추종 방해 안 함)
-    return weight * dd*dd + (weight * 0.05) * da*da;
+    // accel 변화율: weight * 0.05였을 때 실측 재현 결과 사이클마다 +2.0(full accel)과
+    // -2.5(하드 브레이크)를 반복하는 bang-bang이 나왔다(코너 진행 중 코스트 로그
+    // 다수 확인) - accel 변화 자체에 대한 페널티가 너무 약해 매번 풀가속/풀브레이크로
+    // "빨리 목표속도에 맞추는" 게 더 싼 해가 되어버린 것. 0.3으로 올려 급격한
+    // accel 전환에 더 비용을 물려 완만한 가감속을 유도한다.
+    return weight * dd*dd + (weight * 0.3) * da*da;
 }
 
 // ========================================
@@ -73,15 +77,15 @@ namespace {
 constexpr double kTunedDt = 0.1;
 }
 
-double computeTotalCost(
+CostBreakdown computeCostBreakdown(
     const std::vector<MPCState>&   states,
     const std::vector<MPCControl>& controls,
     const ReferencePath&           ref,
     const MPCControl&              prev_control,
     const MPCParams&               params)
 {
-    double total = 0.0;
-    if (states.empty()) return 0.0;
+    CostBreakdown bd;
+    if (states.empty()) return bd;
 
     size_t N = controls.size();
     size_t S = states.size();
@@ -107,19 +111,19 @@ double computeTotalCost(
 
         // R==0 분기는 solveMPC가 ref.empty()를 미리 걸러서 실질적으로 도달하지 않음.
         double v_target = (R > 0) ? ref.v_ref[ref_idx] : 0.0;
-        total += dt_scale * computePathErrorCost   (st, ref, ref_idx, params.weight_path_error);
-        total += dt_scale * computeHeadingErrorCost(st, ref, ref_idx, params.weight_heading_error);
-        total += dt_scale * computeSpeedErrorCost  (st, v_target,     params.weight_speed_error);
+        bd.path    += dt_scale * computePathErrorCost   (st, ref, ref_idx, params.weight_path_error);
+        bd.heading += dt_scale * computeHeadingErrorCost(st, ref, ref_idx, params.weight_heading_error);
+        bd.speed   += dt_scale * computeSpeedErrorCost  (st, v_target,     params.weight_speed_error);
 
         const MPCControl& u_cur = controls[i];
         // steer effort: weight_control / accel effort: weight_control * 0.5
         // accel은 속도 추종을 위해 어느 정도 자유롭게 두어야 급정거 방지
-        total += dt_scale * computeControlEffortCost(u_cur,
+        bd.control += dt_scale * computeControlEffortCost(u_cur,
                                           params.weight_control,
                                           params.weight_control * 0.5);
 
         const MPCControl& u_prev = (i == 0) ? prev_control : controls[i-1];
-        total += rate_scale * computeControlRateCost(u_prev, u_cur, params.weight_control_rate);
+        bd.control_rate += rate_scale * computeControlRateCost(u_prev, u_cur, params.weight_control_rate);
     }
 
     // Terminal cost (마지막 stage와 동일한 시간 인덱스: N-1)
@@ -128,10 +132,20 @@ double computeTotalCost(
         const size_t ref_idx = std::min(N > 0 ? N - 1 : 0, R - 1);
 
         double v_target = ref.v_ref[ref_idx];
-        total += computePathErrorCost   (st, ref, ref_idx, params.weight_terminal);
-        total += computeHeadingErrorCost(st, ref, ref_idx, params.weight_terminal * 0.5);
-        total += computeSpeedErrorCost  (st, v_target,     params.weight_terminal * 0.2);
+        bd.terminal += computePathErrorCost   (st, ref, ref_idx, params.weight_terminal);
+        bd.terminal += computeHeadingErrorCost(st, ref, ref_idx, params.weight_terminal * 0.5);
+        bd.terminal += computeSpeedErrorCost  (st, v_target,     params.weight_terminal * 0.2);
     }
 
-    return total;
+    return bd;
+}
+
+double computeTotalCost(
+    const std::vector<MPCState>&   states,
+    const std::vector<MPCControl>& controls,
+    const ReferencePath&           ref,
+    const MPCControl&              prev_control,
+    const MPCParams&               params)
+{
+    return computeCostBreakdown(states, controls, ref, prev_control, params).total();
 }

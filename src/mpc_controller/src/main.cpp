@@ -6,7 +6,7 @@
 #include <thread>
 #include <vector>
 
-#include "frenet_planner/frenet_planner.hpp"
+#include "cost/cost_function.hpp"
 #include "global/global.hpp"
 #include "global/parameter_loader.hpp"
 #include "global/utils.hpp"
@@ -17,7 +17,6 @@ namespace {
 
 // MPC_PACKAGE_SRC_DIR은 CMakeLists.txt에서 절대경로로 주입 (실행 위치와 무관하게 동작).
 constexpr const char* kMpcParamsPath = MPC_PACKAGE_SRC_DIR "/config/mpc_params.yaml";
-constexpr const char* kFrenetParamsPath = MPC_PACKAGE_SRC_DIR "/frenet_planner/config/params.yaml";
 constexpr const char* kNetworkConfigPath = MPC_PACKAGE_SRC_DIR "/udp_network/network.yaml";
 
 CtrlCmd makeStopCommand() {
@@ -31,19 +30,20 @@ CtrlCmd makeStopCommand() {
     return cmd;
 }
 
-// FrenetPlanner의 CartesianPath(샘플 간격 src_dt) -> mpc의 ReferencePath.
+// frenet_planner_node가 보낸 PlannedPath(샘플 간격 pp.dt) -> mpc의 ReferencePath.
 //
-// cp는 매 사이클 "지금 이 순간"의 ego 상태에서 새로 생성되는 궤적이므로,
-// MPC 쪽에서 위치 기준으로 가장 가까운 ref 점을 찾는 방식(closest-point
-// tracking)을 쓰면 안 된다: 정지 상태에서 시작하면 cp[0]의 목표 속도도
-// 0이라서, "가만히 있기"가 위치오차/속도오차 모두 0인 완벽한 해가 되어
-// 절대 출발하지 못하는 국소최소값에 빠진다(실측 재현 완료). cp는 이미
-// 시간에 따라 균일 샘플링돼 있으므로, MPC의 각 스텝 i(시간 i*dst_dt)에
-// 대응하는 cp 시점을 선형보간해 시간 정렬된 궤적으로 맞춰 넘긴다.
-ReferencePath ToReferencePath(const CartesianPath& cp, double src_dt, double dst_dt, int steps) {
+// pp는 frenet_planner_node에서 매 사이클 "그 순간"의 ego 상태로부터 새로
+// 생성되는 궤적이므로, MPC 쪽에서 위치 기준으로 가장 가까운 ref 점을 찾는
+// 방식(closest-point tracking)을 쓰면 안 된다: 정지 상태에서 시작하면
+// pp[0]의 목표 속도도 0이라서, "가만히 있기"가 위치오차/속도오차 모두 0인
+// 완벽한 해가 되어 절대 출발하지 못하는 국소최소값에 빠진다(실측 재현
+// 완료). pp는 이미 시간에 따라 균일 샘플링돼 있으므로, MPC의 각 스텝
+// i(시간 i*dst_dt)에 대응하는 pp 시점을 선형보간해 시간 정렬된 궤적으로
+// 맞춰 넘긴다.
+ReferencePath ToReferencePath(const PlannedPath& pp, double dst_dt, int steps) {
     ReferencePath ref;
-    const size_t n = cp.x.size();
-    if (n == 0 || src_dt <= 0.0) return ref;
+    const size_t n = pp.size();
+    if (n == 0 || pp.dt <= 0.0) return ref;
 
     ref.x_ref.reserve(steps);
     ref.y_ref.reserve(steps);
@@ -53,17 +53,17 @@ ReferencePath ToReferencePath(const CartesianPath& cp, double src_dt, double dst
 
     for (int i = 0; i < steps; ++i) {
         const double t = i * dst_dt;
-        double idx_f = t / src_dt;
+        double idx_f = t / pp.dt;
         idx_f = clip(idx_f, 0.0, static_cast<double>(n - 1));
         const size_t i0 = static_cast<size_t>(idx_f);
         const size_t i1 = std::min(i0 + 1, n - 1);
         const double frac = idx_f - static_cast<double>(i0);
 
-        ref.x_ref.push_back(cp.x[i0] + frac * (cp.x[i1] - cp.x[i0]));
-        ref.y_ref.push_back(cp.y[i0] + frac * (cp.y[i1] - cp.y[i0]));
-        ref.yaw_ref.push_back(cp.yaw[i0] + frac * angleDiff(cp.yaw[i1], cp.yaw[i0]));
-        ref.v_ref.push_back(cp.v[i0] + frac * (cp.v[i1] - cp.v[i0]));
-        ref.k_ref.push_back(cp.kappa[i0] + frac * (cp.kappa[i1] - cp.kappa[i0]));
+        ref.x_ref.push_back(pp.x[i0] + frac * (pp.x[i1] - pp.x[i0]));
+        ref.y_ref.push_back(pp.y[i0] + frac * (pp.y[i1] - pp.y[i0]));
+        ref.yaw_ref.push_back(pp.yaw[i0] + frac * angleDiff(pp.yaw[i1], pp.yaw[i0]));
+        ref.v_ref.push_back(pp.v[i0] + frac * (pp.v[i1] - pp.v[i0]));
+        ref.k_ref.push_back(pp.kappa[i0] + frac * (pp.kappa[i1] - pp.kappa[i0]));
     }
     return ref;
 }
@@ -77,11 +77,6 @@ int main() {
     std::printf("========================================\n");
 
     loadMPCParameters(kMpcParamsPath);
-
-    FrenetPlanner frenet_planner;
-    if (!frenet_planner.Init(kFrenetParamsPath)) {
-        std::printf("[MPC] FrenetPlanner init failed. Node will keep running but will send stop commands.\n");
-    }
 
     ego.x = 0.0; ego.y = 0.0; ego.yaw = 0.0; ego.vx = 0.0;
     last_control.delta = 0.0; last_control.accel = 0.0;
@@ -106,63 +101,47 @@ int main() {
     while (true) {
         const auto t0 = std::chrono::steady_clock::now();
 
-        if (!udp.has_vehicle_state()) {
-            std::printf("[MPC] Waiting for ego_vehicle status...\n");
+        // frenet_planner_node가 (아직) PlannedPath를 한 번도 안 보내온 상태.
+        // Plan() 실패 시 마지막 유효 경로로 버티는 로직은 이제 frenet_planner_node
+        // 쪽에서 전담한다(그쪽 main.cpp 참고) - mpc_controller는 받은 걸 그대로
+        // 신뢰하는 단순 소비자.
+        if (!udp.has_planned_path()) {
+            std::printf("[MPC] Waiting for planned path...\n");
             udp.send_ctrl_cmd(makeStopCommand());
             std::this_thread::sleep_until(t0 + period);
             continue;
         }
 
-        // 1) ego 스냅샷: EgoVehicleStatus(ground truth) 그대로 사용.
-        const VehicleState vs = udp.get_vehicle_state();
+        const PlannedPath pp = udp.get_planned_path();
+
+        // 1) ego 스냅샷: frenet_planner_node가 중계한 EgoVehicleStatus(ground truth) 그대로 사용.
         MPCState ego_snap;
-        ego_snap.x = vs.x;
-        ego_snap.y = vs.y;
-        ego_snap.yaw = vs.yaw;
-        ego_snap.vx = vs.v;
+        ego_snap.x = pp.ego_x;
+        ego_snap.y = pp.ego_y;
+        ego_snap.yaw = pp.ego_yaw;
+        ego_snap.vx = pp.ego_v;
         ego = ego_snap;
 
-        // FrenetPlanner 입력용 CartesianState.
-        // TODO: ego_cs.kappa를 vs.steer(단위/부호 미검증, udp_network/datatypes.hpp 참고)
-        // 기반 tan(steer)/wheelbase로 추정했었으나, 단위가 틀리면 CartesianToFrenet의
-        // d_pprime 계산이 폭주해 모든 후보가 max_lateral_accel을 넘어 무효화되는 문제가
-        // 있었음. steer 실측 검증 전까지는 0(순간 직진 가정)으로 안전하게 둔다.
-        CartesianState ego_cs;
-        ego_cs.x = vs.x;
-        ego_cs.y = vs.y;
-        ego_cs.yaw = vs.yaw;
-        ego_cs.kappa = 0.0;
-        ego_cs.v = vs.v;
-        ego_cs.a = vs.accel;
-
-        // 2) FrenetPlanner: 전역 경로 기반 Local trajectory 생성 (LANE_KEEPING 고정)
-        CartesianPath cp;
-        const std::vector<ObjectInfo> obstacles = udp.get_objects();
-        static int obstacle_log_counter = 0;
-        if (++obstacle_log_counter % 20 == 0) {  // 1초(20Hz)에 한 번만 - 로그 스팸 방지
-            std::printf("[MPC-DEBUG] has_object_info=%d obstacles=%zu",
-                        udp.has_object_info(), obstacles.size());
-            if (!obstacles.empty()) {
-                std::printf(" first: id=%d x=%.2f y=%.2f w=%.2f l=%.2f",
-                            obstacles[0].id, obstacles[0].x, obstacles[0].y,
-                            obstacles[0].width, obstacles[0].length);
-            }
-            std::printf("\n");
-        }
-        if (!frenet_planner.Plan(ego_cs, obstacles, cp)) {
-            std::printf("[MPC] FrenetPlanner: no valid path\n");
-            udp.send_ctrl_cmd(makeStopCommand());
-            std::this_thread::sleep_until(t0 + period);
-            continue;
-        }
-        ReferencePath ref = ToReferencePath(cp, frenet_planner.sample_dt(),
-                                            mpc_params.dt, mpc_params.horizon);
+        // 2) PlannedPath -> ReferencePath (시간 정렬)
+        ReferencePath ref = ToReferencePath(pp, mpc_params.dt, mpc_params.horizon);
 
         // 3) MPC 풀기
+        const MPCControl prev_control_for_debug = last_control;  // rate cost 진단용 (아래 breakdown)
         MPCResult res = solveMPC(ego_snap, ref, last_control, warm_start, mpc_params);
 
         if (!res.success) {
             std::printf("[MPC] solver msg: %s\n", res.solver_msg.c_str());
+        }
+
+        // 진단용: 급브레이크(|accel|>1.5)가 어느 cost 항 때문인지 확인 - 목표속도가
+        // 고정인데도 급감속/급가속이 반복되는 현상(구불구불한 구간 실측 재현)의
+        // 원인을 특정하기 위한 임시 로그. 원인 확정되면 제거.
+        if (std::fabs(res.control.accel) > 1.5) {
+            CostBreakdown bd = computeCostBreakdown(res.predicted_states, res.controls, ref,
+                                                     prev_control_for_debug, mpc_params);
+            std::printf("[MPC-COST] path=%.2f heading=%.2f speed=%.2f control=%.2f rate=%.2f terminal=%.2f | accel=%.2f\n",
+                        bd.path, bd.heading, bd.speed, bd.control, bd.control_rate, bd.terminal,
+                        res.control.accel);
         }
 
         // 4) warm-start 갱신
@@ -195,9 +174,15 @@ int main() {
         cmd.steer = static_cast<float>(steer_norm);
         udp.send_ctrl_cmd(cmd);
 
-        std::printf("[MPC] pos=(%.2f,%.2f) yaw=%.2f vx=%.2f | steer=%.3f rad | accel_raw=%.3f m/s2 | accel=%.2f brake=%.2f | cost=%.2f\n",
+        // d/d_dot/steer_norm을 같이 찍어서 횡방향 오차가 조향 포화(steer_norm이
+        // ±1.0에 붙어있는데도 d가 못 줄어듦 - 액추에이션/모델 한계) 때문인지,
+        // 여유가 있는데도 못 줄이는 것(모델이 필요한 조향을 과소평가)인지 구분한다.
+        // d/d_dot은 frenet_planner_node가 PlannedPath에 실어 보내준 값 그대로.
+        std::printf("[MPC] pos=(%.2f,%.2f) yaw=%.2f vx=%.2f | d=%.3f d_dot=%.3f | "
+                    "steer=%.3f rad (norm=%.2f) | accel_raw=%.3f m/s2 | accel=%.2f brake=%.2f | cost=%.2f\n",
                     ego_snap.x, ego_snap.y, ego_snap.yaw, ego_snap.vx,
-                    steer_rad, accel_raw, accel_norm, brake_norm, res.cost);
+                    pp.d, pp.d_dot,
+                    steer_rad, steer_norm, accel_raw, accel_norm, brake_norm, res.cost);
 
         std::this_thread::sleep_until(t0 + period);
     }

@@ -12,11 +12,15 @@ mpc:
   wheelbase: 3.0
 
 cost:
-  path_error: 4.0
+  # 4.0→6.0: 실측 재현 결과 선회 중 차선 중앙에서 벗어난 채(횡방향 잔차) 유지되는
+  # 경향이 있었다 - path_error가 heading_error/speed_error 대비 상대적으로 약해서
+  # solver가 속도/헤딩을 맞추는 쪽을 더 싸게 여긴 것으로 보임. 위치 추종을 더
+  # 강하게 우선하도록 올린다.
+  path_error: 6.0
   heading_error: 3.0      # 6.0→3.0: 과도한 heading 보정이 오버슈트 유발
   speed_error: 2.0        # 3.0→2.0: 급정거 방지
   control: 1.25            # 2.0→1.0: steer effort 페널티 완화
-  control_rate: 30.0      # 조향 변화율 억제 (accel은 cost_function 내부에서 *0.05)
+  control_rate: 15.0      # 조향 변화율 억제 (accel은 cost_function 내부에서 *0.3 - 급가속/급브레이크 반복 억제)
   terminal: 8.0
 
 solver:

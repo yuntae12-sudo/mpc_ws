@@ -27,4 +27,23 @@ double computeTotalCost(
     const MPCControl&              prev_control,  // 이전 사이클 마지막 명령 (rate cost용)
     const MPCParams&               params);
 
+// computeTotalCost와 동일한 계산을 항목별로 분리해서 반환 (진단용).
+// 급브레이크/급조향 사이클에서 어느 항이 지배적인지 확인하는 데 쓴다.
+struct CostBreakdown {
+    double path = 0.0;
+    double heading = 0.0;
+    double speed = 0.0;
+    double control = 0.0;
+    double control_rate = 0.0;
+    double terminal = 0.0;
+    double total() const { return path + heading + speed + control + control_rate + terminal; }
+};
+
+CostBreakdown computeCostBreakdown(
+    const std::vector<MPCState>&   states,
+    const std::vector<MPCControl>& controls,
+    const ReferencePath&           ref,
+    const MPCControl&              prev_control,
+    const MPCParams&               params);
+
 #endif // MPC_COST_FUNCTION_HPP

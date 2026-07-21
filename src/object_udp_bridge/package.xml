@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>object_udp_bridge</name>
+  <version>0.1.0</version>
+  <description>
+    임시 진단용 브릿지: MORAI ROS 토픽(/Object_topic, morai_msgs/ObjectStatusList)을
+    받아서 mpc_controller의 ObjectInfoReceiver가 기대하는 MORAI UDP ObjectInfo
+    패킷 포맷 그대로 127.0.0.1:7505로 재전송한다. MORAI SIM이 이 환경에서 Object
+    Info를 UDP로는 안 보내고 ROS로만 보내는 문제를 우회해, mpc_node 코드를 전혀
+    건드리지 않고 AVOID/SAT 충돌회피 로직을 실제 장애물 데이터로 검증하기 위한
+    용도. 대회 제출용 코드가 아니라 검증이 끝나면 삭제해도 되는 임시 도구.
+  </description>
+  <maintainer email="autonav@todo.todo">autonav</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>roscpp</depend>
+  <depend>morai_msgs</depend>
+  <export/>
+</package>

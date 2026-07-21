@@ -8,7 +8,9 @@ network:
   collision_dst_port: 9092
   competition_host_port: 908  # 미사용
   competition_dst_port: 909   # 미사용
-  ego_vehicle_host_port: 910
-  ego_vehicle_dst_port: 911   # ego_info_receiver(ground truth)가 구독할 포트
-  object_info_host_port: 7605
-  object_info_dst_port: 7505
+
+  # frenet_planner_node로부터 PlannedPath를 받는 포트. frenet_planner의
+  # udp_network/network.yaml에 있는 planned_path_dst_port와 반드시 같은 값이어야
+  # 한다. mpc_controller는 더 이상 MORAI의 ego(911)/object(7505) 포트를 직접
+  # 듣지 않는다 - frenet_planner_node가 그 역할을 맡는다.
+  planned_path_host_port: 9300
