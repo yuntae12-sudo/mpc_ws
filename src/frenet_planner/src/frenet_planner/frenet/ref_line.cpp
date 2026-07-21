@@ -202,7 +202,17 @@ RefPoint Interpolate(const RefLine& ref, double s) {
     const auto& pts = ref.points;
     int n = static_cast<int>(pts.size());
 
-    // 범위 클램핑
+    // 폐루프(닫힌 트랙) wrap-around: 이전엔 s를 [front().s, back().s]로
+    // 클램핑했는데, 이러면 이음새(피니시라인) 근처에서 s가 끝점에 얼어붙어
+    // 실제 위치와 무관한 d/heading이 나오는 문제가 있었다(실측: 마지막 구간
+    // 경로추종 불안정). front()==back() 위치가 물리적으로 같은 점(폐루프
+    // 폐합점)이므로, 범위를 벗어나면 클램핑 대신 [0, s_max)로 감아준다.
+    const double s_max = pts.back().s;
+    double s_wrapped = std::fmod(s, s_max);
+    if (s_wrapped < 0.0) s_wrapped += s_max;
+    s = s_wrapped;
+
+    // 부동소수 오차로 경계값을 살짝 벗어나는 경우만 클램핑.
     if (s <= pts.front().s) return pts.front();
     if (s >= pts.back().s)  return pts.back();
 
@@ -265,14 +275,21 @@ double FindClosestS(const RefLine& ref, double x, double y,
     // 참고 - 트랙이 자기 자신과 가까운 구간에서 전체 탐색이 엉뚱하게 먼 s로
     // 튀는 문제 방지). 범위 안에 점이 하나도 없으면(비정상 상황) 안전하게
     // 전체 탐색으로 폴백한다.
+    const double s_max_for_wrap = ref.points.back().s;
+
     double best_s = ref.points[0].s;
     double best_d2 = std::numeric_limits<double>::max();
     bool found = false;
     if (s_hint) {
-        const double s_lo = *s_hint - window;
-        const double s_hi = *s_hint + window;
+        // 폐루프 wrap-around: 단순 [hint-window, hint+window] 범위 체크는
+        // hint가 이음새(s≈0 또는 s≈s_max) 근처일 때 반대편(물리적으로는
+        // 바로 붙어있는) 구간의 점들을 전부 놓친다. s축 위의 최短 원형
+        // 거리(circular distance)로 비교해 이음새를 넘어서도 창이 정상
+        // 동작하게 한다.
         for (const auto& pt : ref.points) {
-            if (pt.s < s_lo || pt.s > s_hi) continue;
+            double diff = std::fabs(pt.s - *s_hint);
+            double circ_dist = std::min(diff, s_max_for_wrap - diff);
+            if (circ_dist > window) continue;
             double dx = x - pt.x;
             double dy = y - pt.y;
             double d2 = dx * dx + dy * dy;
@@ -289,8 +306,7 @@ double FindClosestS(const RefLine& ref, double x, double y,
     }
 
     double s = best_s;
-    double s_min = ref.points.front().s;
-    double s_max = ref.points.back().s;
+    const double s_max = s_max_for_wrap;
 
     for (int iter = 0; iter < 20; iter++) {
         RefPoint rp = Interpolate(ref, s);
@@ -312,8 +328,12 @@ double FindClosestS(const RefLine& ref, double x, double y,
         double ds = -f / fp;
         s += ds;
 
-        // 탐색 범위를 벗어나면 클램핑 (외삽 방지)
-        s = std::max(s_min, std::min(s, s_max));
+        // 폐루프 wrap-around: 이음새 근처에서 Newton 스텝이 s=0 또는
+        // s=s_max를 자연스럽게 넘나들 수 있어야 한다(클램핑하면 반대편으로
+        // 못 건너가고 끝점에 갇힌다). Interpolate도 동일하게 wrap하므로
+        // f(s)/f'(s) 계산 자체는 항상 유효하다.
+        s = std::fmod(s, s_max);
+        if (s < 0.0) s += s_max;
 
         if (std::abs(ds) < 1e-6) break;  // 수렴
     }

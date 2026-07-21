@@ -49,11 +49,23 @@ double LookaheadTargetSpeed(const RefLine& ref, double s_start, double ego_speed
     const double required_dist = speed_drop / (2.0 * usable_decel);
     const double lookahead_m = std::max(cfg.curve_lookahead_m, required_dist + kReactionMargin);
 
+    // 폐루프 wrap-around: s_start+lookahead_m이 s_max를 넘으면(피니시라인
+    // 근처) 원래 코드는 뒤가 안 나와 break만 되고 이음새 너머(실제로는 바로
+    // 이어지는 트랙 시작 구간)의 곡률을 놓쳤다 - 그 구간에 급커브가 있으면
+    // 감속 없이 그대로 진입하게 된다. s_max로 감아서 [s_start, s_max]와
+    // [0, 넘친 만큼] 두 구간을 모두 본다.
+    const double s_max = ref.points.back().s;
+    double s_start_w = std::fmod(s_start, s_max);
+    if (s_start_w < 0.0) s_start_w += s_max;
+    const double s_end_w = s_start_w + lookahead_m;
+    const double wrapped_end = s_end_w - s_max;  // s_end_w > s_max일 때만 유효
+
     double max_k = 0.0;
     for (const auto& p : ref.points) {
-        if (p.s < s_start) continue;
-        if (p.s > s_start + lookahead_m) break;
-        max_k = std::max(max_k, std::fabs(p.kappa));
+        const bool in_range = (s_end_w <= s_max)
+            ? (p.s >= s_start_w && p.s <= s_end_w)
+            : (p.s >= s_start_w || p.s <= wrapped_end);
+        if (in_range) max_k = std::max(max_k, std::fabs(p.kappa));
     }
     return VelocityFromCurvature(max_k, cfg, max_lateral_accel);
 }
