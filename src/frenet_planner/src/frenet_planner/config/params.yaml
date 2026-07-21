@@ -1,12 +1,13 @@
 # =========================================================
 # Frenet Frame Planner 파라미터 (mpc_controller에 통합된 버전)
-# FSM 미완성 상태: LANE_KEEPING 고정 + 곡률 기반 사전 감속만 사용.
-# behavior_planner 연동(lane_change/stop/emergency 등)은 FSM 완성 후 별도 추가 예정.
+# FSM(behavior_planner) 미연동 상태: 모드 전환 조건을 frenet_planner.cpp에
+# 직접 하드코딩해서 검증 중 (LANE_KEEPING/FOLLOWING 완료, AVOID/Merge는
+# 아직). behavior_planner 연동은 각 모드 검증이 끝난 후 별도 단계에서.
 # =========================================================
 
 planner:
   wheelbase: 3.0    # [m] mpc_controller/src/config/mpc_params.yaml과 동일 값 유지
-  lane_width: 3.5   # [m] 지금은 LANE_KEEPING만 써서 미사용, 차선변경 대비 유지
+  lane_width: 3.5   # [m] LANE_CHANGE 오프셋, FindLeader의 "내 차선" 판정(|d|<=lane_width/2)에 사용
 
   # --- 곡률 기반 사전 감속 (mpc_controller 옛 path_planner.cpp에서 이식) ---
   curve_speed:
@@ -18,6 +19,19 @@ planner:
     curve_th_mid:    0.035
     curve_th_mild:   0.015
     curve_lookahead_m: 15.0
+
+  # --- Following(Sec.V-A, constant-time-gap-law) ---
+  following:
+    time_gap: 1.0              # [s] tau - 목표 gap = min_gap + time_gap*leader_speed
+    min_gap: 5.0               # [m] D0 - 정지 시에도 유지할 최소 거리
+    max_leader_search_s: 60.0  # [m] 이 거리 안의 선두 차량만 후보로 봄
+
+  # --- AVOID (Sec.VI SAT 충돌필터 + lateral 오프셋). FSM 미연동 상태의
+  # 임시 트리거: "내 차선을 막는 정지/저속 장애물이 가까이 있으면 피한다" ---
+  avoid:
+    trigger_distance: 20.0    # [m] 이 거리 안의 장애물만 회피 트리거 검토
+    trigger_max_speed: 0.5    # [m/s] 이 속도 이하만 "정지 장애물"로 간주(그 이상은 Following)
+    avoid_offset: 3.0         # [m] 회피 시 lateral_d1 격자를 밀어낼 크기
 
   # --- PathGeneratorConfig (path_generator.hpp) ---------------
   path_generator:

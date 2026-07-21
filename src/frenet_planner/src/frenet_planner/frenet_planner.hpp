@@ -6,14 +6,19 @@
 #include "frenet_planner/frenet/ref_line.hpp"
 #include "frenet_planner/frenet/path_generator.hpp"
 #include "frenet_planner/frenet/cost.hpp"
+#include "frenet_planner/frenet/avoidance_selector.hpp"
 #include "frenet_planner/frenet/collision_checker.hpp"
+#include "frenet_planner/frenet/leader_selector.hpp"
 #include "frenet_planner/global/data_logger.hpp"
 #include "frenet_planner/global/global.hpp"
 #include "frenet_planner/math/frenet_converter.hpp"
 
 // Frenet Frame Path Planner: 전역 경로(RefLine)를 기준으로 한 Local Planner.
-// FSM이 아직 없어서 지금은 LANE_KEEPING 고정 + 곡률 기반 사전 감속만 자체 반영한다.
-// (behavior_planner 연동은 FSM 완성 후 별도 단계에서 붙일 예정)
+// FSM(behavior_planner)이 아직 연동되지 않아서, 모드 전환 조건을 지금은
+// Plan() 안에 직접 하드코딩해뒀다(내 차선을 막는 정지/저속 장애물이 있으면
+// AVOID, 그 다음 선두 차량이 있으면 FOLLOWING, 둘 다 없으면 LANE_KEEPING -
+// Merge도 검증될 때까지 같은 방식으로 추가될 예정). behavior_planner 연동
+// 시 이 조건문들을 걷어내고 FSM이 준 mode를 그대로 쓰도록 교체한다.
 class FrenetPlanner {
 public:
     // yaml_path: frenet_planner/config/params.yaml
@@ -55,6 +60,8 @@ private:
     VehicleShape vehicle_shape_{};
     CollisionCheckConfig collision_cfg_{};
     CurveSpeedConfig curve_speed_cfg_{};
+    FollowingConfig following_cfg_{};
+    AvoidConfig avoid_cfg_{};
     double wheelbase_ = 3.0;
     double lane_width_ = 3.5;
     bool ref_loaded_ = false;

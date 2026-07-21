@@ -403,6 +403,9 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
                                          const PathGeneratorConfig& cfg,
                                          const KinematicLimits& limits,
                                          double lane_width,
+                                         const std::vector<ObjectInfo>& obstacles,
+                                         const VehicleShape& vehicle_shape,
+                                         const CollisionCheckConfig& collision_cfg,
                                          PlannerDebugStats* stats) {
     // 1. lateral 후보 (필요 시 목표 오프셋만큼 d1 격자를 평행이동)
     PathGeneratorConfig lateral_cfg = cfg;
@@ -468,6 +471,15 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
     FilterByCurvature(combined, ref, limits);
     if (stats) {
         for (const auto& p : combined) if (p.valid) stats->combined_valid_after_curvature++;
+    }
+
+    // 4. 충돌 필터링(Sec.VI) - obstacles가 없으면 아무 것도 안 걸러지므로
+    // 안전하게 항상 호출해도 된다(장애물 없을 때 기존 동작과 동일).
+    if (!obstacles.empty()) {
+        FilterByCollision(combined, ref, obstacles, vehicle_shape, collision_cfg);
+    }
+    if (stats) {
+        for (const auto& p : combined) if (p.valid) stats->combined_valid_after_collision++;
     }
 
     return combined;

@@ -23,6 +23,32 @@ struct CurveSpeedConfig {
     double curve_lookahead_m = 15.0;
 };
 
+// =========================================================
+// Following(Sec.V-A) 모드 파라미터. leader_selector.cpp가 obstacles에서
+// 선두 차량을 고를 때(탐색 범위)와 GenerateFollowingCandidates가
+// constant-time-gap-law target을 만들 때(time_gap=tau, min_gap=D0) 쓴다.
+// =========================================================
+struct FollowingConfig {
+    double time_gap = 1.0;              // [s] tau
+    double min_gap  = 5.0;              // [m] D0
+    double max_leader_search_s = 60.0;  // [m] 이 거리 안의 선두 차량만 후보로 봄
+};
+
+// =========================================================
+// AVOID 트리거/오프셋 결정용 파라미터. FSM 미연동 상태의 임시 판단 기준 -
+// "내 차선을 막고 있는 정지/저속 장애물이 가까이 있으면 피한다"만 반영.
+// (behavior_planner 연동 시 진짜 트리거 조건으로 교체될 자리표시자)
+// =========================================================
+struct AvoidConfig {
+    double trigger_distance  = 20.0;  // [m] 이 거리 안의 장애물만 회피 트리거 검토
+    double trigger_max_speed = 0.5;   // [m/s] 이 속도 이하만 "정지 장애물"로 간주(그 이상은 Following이 처리)
+    // [m] 회피 시 lateral_d1 격자를 밀어낼 크기. 자차 폭(1.9m 기준) + 장애물
+    // 폭 절반씩 + 여유(0.3m)를 감안한 최소 이격(~2.2m)보다 확실히 크게 잡아야
+    // avoidance_selector.cpp의 좌/우 클리어 판정이 "장애물 자신" 때문에 항상
+    // 막힌 것으로 나오지 않는다.
+    double avoid_offset      = 3.0;
+};
+
 // waypoint 파일("x y" 또는 "x,y") -> RefLine
 bool LoadReferenceLine(const std::string& path, RefLine& out_ref, double max_curvature);
 
@@ -34,6 +60,8 @@ void LoadParams(const std::string& yaml_path,
                 VehicleShape& vehicle_shape,
                 CollisionCheckConfig& collision_cfg,
                 CurveSpeedConfig& curve_speed_cfg,
+                FollowingConfig& following_cfg,
+                AvoidConfig& avoid_cfg,
                 double& wheelbase,
                 double& lane_width,
                 std::string& waypoint_file);

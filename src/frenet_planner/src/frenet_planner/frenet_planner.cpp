@@ -75,7 +75,8 @@ double LookaheadTargetSpeed(const RefLine& ref, double s_start, double ego_speed
 bool FrenetPlanner::Init(const std::string& yaml_path) {
     std::string waypoint_file;
     LoadParams(yaml_path, path_cfg_, limits_, cost_weights_, vehicle_shape_,
-               collision_cfg_, curve_speed_cfg_, wheelbase_, lane_width_, waypoint_file);
+               collision_cfg_, curve_speed_cfg_, following_cfg_, avoid_cfg_,
+               wheelbase_, lane_width_, waypoint_file);
 
     if (waypoint_file.empty() || !LoadReferenceLine(waypoint_file, ref_, limits_.max_curvature)) {
         std::printf("[FrenetPlanner] Reference line load failed (waypoint_file='%s')\n",
@@ -208,21 +209,39 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
 
     FrenetState start{s, s_dot, s_ddot, d, d_dot, d_ddot};
 
-    // FSM 미완성: LANE_KEEPING 고정 + 곡률 기반 사전 감속만 반영.
-    // AVOID 트리거/SAT 충돌필터(FilterByCollision, collision_checker.cpp)는
-    // FSM이 붙기 전까지 비활성화 - obstacles는 그 검증 때만 쓰였고 지금은
-    // 파라미터로만 받아둔 채 쓰지 않는다. SAT 로직 자체는 그대로 남아있으니
-    // FSM 연동 시 여기서 다시 호출하면 된다.
-    (void)obstacles;
+    // FSM(behavior_planner) 미연동: 모드 전환을 여기서 직접 판단한다(클래스
+    // 헤더 주석 참고). 우선순위: AVOID(내 차선을 막는 정지/저속 장애물이
+    // 가까이 있음) > FOLLOWING(움직이는 선두 차량) > LANE_KEEPING. AVOID를
+    // 먼저 봐야 하는 이유: 정지 장애물을 "느린 선두차량"으로 보고 그냥
+    // 뒤따라가다 서버리면(Following) 실제로는 옆으로 피해야 하는 상황을
+    // 놓친다. SAT 충돌필터(FilterByCollision)는 이제 ResolveManeuver 안에서
+    // obstacles가 있을 때 항상(모드 무관) 적용된다.
     PlannerCommand cmd{};
-    cmd.mode = LANE_KEEPING;
+    double avoid_offset = 0.0;
+    double leader_s = 0.0, leader_speed = 0.0, leader_accel = 0.0;
+    if (FindAvoidanceTarget(ref_, start, obstacles, lane_width_, vehicle_shape_,
+                            avoid_cfg_, avoid_offset)) {
+        cmd.mode = AVOID;
+        cmd.avoidance_d_offset = avoid_offset;
+    } else if (FindLeader(ref_, start, obstacles, lane_width_, following_cfg_,
+                          leader_s, leader_speed, leader_accel)) {
+        cmd.mode = FOLLOWING;
+        cmd.leader_s = leader_s;
+        cmd.leader_speed = leader_speed;
+        cmd.leader_accel = leader_accel;
+        cmd.time_gap = following_cfg_.time_gap;
+        cmd.min_gap = following_cfg_.min_gap;
+    } else {
+        cmd.mode = LANE_KEEPING;
+    }
     cmd.target_speed = LookaheadTargetSpeed(ref_, s, ego.v, curve_speed_cfg_,
                                              limits_.max_longitudinal_accel,
                                              limits_.max_lateral_accel, limits_.max_curvature);
 
     PlannerDebugStats stats;
     std::vector<FrenetPath> candidates =
-        ResolveManeuver(start, cmd, ref_, path_cfg_, limits_, lane_width_, &stats);
+        ResolveManeuver(start, cmd, ref_, path_cfg_, limits_, lane_width_,
+                         obstacles, vehicle_shape_, collision_cfg_, &stats);
 
     EvaluateCosts(candidates, cost_weights_);
 
@@ -235,10 +254,11 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
                      "target_speed=%.2f\n",
                      s, d, s_dot, s_ddot, d_dot, d_ddot, cmd.target_speed);
         std::printf("[FrenetPlanner-DEBUG] lateral %zu/%zu valid | longitudinal %zu/%zu valid | "
-                     "combined %zu -> after curvature %zu valid\n",
+                     "combined %zu -> after curvature %zu -> after collision %zu valid\n",
                      stats.lateral_valid, stats.lateral_total,
                      stats.longitudinal_valid, stats.longitudinal_total,
-                     stats.combined_total, stats.combined_valid_after_curvature);
+                     stats.combined_total, stats.combined_valid_after_curvature,
+                     stats.combined_valid_after_collision);
         return false;
     }
 

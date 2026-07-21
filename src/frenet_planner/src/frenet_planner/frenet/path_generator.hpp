@@ -1,6 +1,7 @@
 #ifndef FRENET_PATH_GENERATOR_HPP
 #define FRENET_PATH_GENERATOR_HPP
 
+#include "frenet_planner/frenet/collision_checker.hpp"
 #include "frenet_planner/frenet/ref_line.hpp"
 #include "frenet_planner/global/global.hpp"
 
@@ -183,14 +184,23 @@ struct PlannerDebugStats {
     size_t lateral_total = 0, lateral_valid = 0;
     size_t longitudinal_total = 0, longitudinal_valid = 0;
     size_t combined_total = 0, combined_valid_after_curvature = 0;
+    size_t combined_valid_after_collision = 0;
 };
 
+// obstacles/vehicle_shape/collision_cfg: Sec.VI 충돌 필터(FilterByCollision,
+// SAT 기반)를 곡률 필터 다음에 적용한다. AVOID 전용이 아니라 모든 모드에
+// 공통으로 적용된다(논문 Sec.VI도 충돌검사를 모드와 무관하게 항상 수행) -
+// 장애물이 없거나 멀면 아무 후보도 걸러지지 않아 기존 동작과 동일하다.
+// obstacles가 비어있으면(장애물 없음) 호출 자체를 건너뛴다.
 std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
                                          const PlannerCommand& cmd,
                                          const RefLine& ref,
                                          const PathGeneratorConfig& cfg,
                                          const KinematicLimits& limits,
                                          double lane_width,
+                                         const std::vector<ObjectInfo>& obstacles,
+                                         const VehicleShape& vehicle_shape,
+                                         const CollisionCheckConfig& collision_cfg,
                                          PlannerDebugStats* stats = nullptr);
 
 #endif

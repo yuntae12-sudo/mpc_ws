@@ -82,6 +82,8 @@ void LoadParams(const std::string& yaml_path,
                  VehicleShape& vehicle_shape,
                  CollisionCheckConfig& collision_cfg,
                  CurveSpeedConfig& curve_speed_cfg,
+                 FollowingConfig& following_cfg,
+                 AvoidConfig& avoid_cfg,
                  double& wheelbase,
                  double& lane_width,
                  std::string& waypoint_file) {
@@ -136,6 +138,14 @@ void LoadParams(const std::string& yaml_path,
     loadInto(root, "planner/curve_speed/curve_th_mid",     curve_speed_cfg.curve_th_mid);
     loadInto(root, "planner/curve_speed/curve_th_mild",    curve_speed_cfg.curve_th_mild);
     loadInto(root, "planner/curve_speed/curve_lookahead_m",curve_speed_cfg.curve_lookahead_m);
+
+    loadInto(root, "planner/following/time_gap",             following_cfg.time_gap);
+    loadInto(root, "planner/following/min_gap",              following_cfg.min_gap);
+    loadInto(root, "planner/following/max_leader_search_s",  following_cfg.max_leader_search_s);
+
+    loadInto(root, "planner/avoid/trigger_distance",  avoid_cfg.trigger_distance);
+    loadInto(root, "planner/avoid/trigger_max_speed", avoid_cfg.trigger_max_speed);
+    loadInto(root, "planner/avoid/avoid_offset",      avoid_cfg.avoid_offset);
 
     loadInto(root, "planner/wheelbase",   wheelbase);
     loadInto(root, "planner/lane_width",  lane_width);
