@@ -20,7 +20,21 @@ cost:
   heading_error: 3.0      # 6.0→3.0: 과도한 heading 보정이 오버슈트 유발
   speed_error: 2.0        # 3.0→2.0: 급정거 방지
   control: 1.25            # 2.0→1.0: steer effort 페널티 완화
-  control_rate: 15.0      # 조향 변화율 억제 (accel은 cost_function 내부에서 *0.3 - 급가속/급브레이크 반복 억제)
+  # 15.0→95.0: 완만한 곡선을 지속 추종할 때 d가 최대 0.47m까지 벌어지는
+  # 문제를 하네스 closed-loop 시뮬레이션(Frenet+MPC를 실제 코드로 묶어
+  # kinematic bicycle 모델로 여러 사이클 돌림, 모델 불일치 없음)으로 재현.
+  # path_error/heading_error/lateral_error를 올리는 건 전부 역효과였고
+  # (반직관적이지만 실측 확인됨), control_rate(조향 변화율 감쇠)만 올리는
+  # 게 유일하게 단조 개선됐다 - 댐핑 부족으로 인한 오버슈트였다는 뜻.
+  # 완만한 곡선(kappa~0.02)과 급커브(kappa~0.11) 양쪽에서 스윕한 결과
+  # 90~100 구간이 공통 최적점(그 밑/위 모두 다시 나빠짐 - 진동 vs 둔한
+  # 반응의 트레이드오프).
+  control_rate: 100.0
+  # accel 변화율 억제 — control_rate와 완전히 분리(예전엔 control_rate*0.3로
+  # 파생시켜서 같이 묶여 있었음). control_rate를 95까지 올려도 이 값은 그대로
+  # 둬서(예전 15*0.3=4.5와 동일) 오늘 아침 고친 bang-bang accel이 재발하지
+  # 않게 한다(실측 확인).
+  control_rate_accel: 4.5
   terminal: 8.0
 
 solver:

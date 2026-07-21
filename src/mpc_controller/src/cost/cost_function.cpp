@@ -50,17 +50,19 @@ double computeControlEffortCost(const MPCControl& u, double w_steer, double w_ac
 //   같은 weight로 묶으면 gradient 왜곡 → 흔들림/급정거 원인
 // ========================================
 double computeControlRateCost(const MPCControl& u_prev, const MPCControl& u_cur,
-                              double weight)
+                              double weight_steer, double weight_accel)
 {
     double dd = u_cur.delta - u_prev.delta;
     double da = u_cur.accel - u_prev.accel;
-    // steer 변화율: weight 그대로 (조향 흔들림 억제)
-    // accel 변화율: weight * 0.05였을 때 실측 재현 결과 사이클마다 +2.0(full accel)과
-    // -2.5(하드 브레이크)를 반복하는 bang-bang이 나왔다(코너 진행 중 코스트 로그
-    // 다수 확인) - accel 변화 자체에 대한 페널티가 너무 약해 매번 풀가속/풀브레이크로
-    // "빨리 목표속도에 맞추는" 게 더 싼 해가 되어버린 것. 0.3으로 올려 급격한
-    // accel 전환에 더 비용을 물려 완만한 가감속을 유도한다.
-    return weight * dd*dd + (weight * 0.3) * da*da;
+    // steer/accel 변화율을 독립된 가중치로 분리. 예전엔 accel 쪽을
+    // weight_steer*0.3로 고정 파생시켰는데(그 배수 자체는 bang-bang accel을
+    // 잡느라 튠한 값, 아래 참고), steer 쪽 감쇠(조향 흔들림/오버슈트 억제)를
+    // 완만한 곡선 지속 추종 성능 개선을 위해 따로 올려야 하는 상황이 생겨서
+    // (실측: 지속 곡선에서 d가 최대 0.47m까지 벌어짐 - 하네스 시뮬레이션으로
+    // control_rate를 15->100까지 올릴수록 d가 단조감소함을 확인) 완전히
+    // 분리했다. accel 쪽을 그대로 같이 올리면 급가감속 페널티도 같이 커져서
+    // 목표속도 추종이 둔해지는 부작용이 있다.
+    return weight_steer * dd*dd + weight_accel * da*da;
 }
 
 // ========================================
@@ -123,7 +125,9 @@ CostBreakdown computeCostBreakdown(
                                           params.weight_control * 0.5);
 
         const MPCControl& u_prev = (i == 0) ? prev_control : controls[i-1];
-        bd.control_rate += rate_scale * computeControlRateCost(u_prev, u_cur, params.weight_control_rate);
+        bd.control_rate += rate_scale * computeControlRateCost(u_prev, u_cur,
+                                          params.weight_control_rate,
+                                          params.weight_control_rate_accel);
     }
 
     // Terminal cost (마지막 stage와 동일한 시간 인덱스: N-1)

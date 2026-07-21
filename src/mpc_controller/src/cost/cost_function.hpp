@@ -17,7 +17,7 @@ double computeControlEffortCost(const MPCControl& u, double weight_steer,
                                  double weight_accel);
 
 double computeControlRateCost(const MPCControl& u_prev, const MPCControl& u_cur,
-                              double weight);
+                              double weight_steer, double weight_accel);
 
 // 전체 trajectory 의 cost
 double computeTotalCost(

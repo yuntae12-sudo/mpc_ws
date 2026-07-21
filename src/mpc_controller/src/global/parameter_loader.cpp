@@ -61,7 +61,8 @@ void loadMPCParameters(const std::string& yaml_path)
     loadInto(root, "cost/heading_error",  p.weight_heading_error);
     loadInto(root, "cost/speed_error",    p.weight_speed_error);
     loadInto(root, "cost/control",        p.weight_control);
-    loadInto(root, "cost/control_rate",   p.weight_control_rate);
+    loadInto(root, "cost/control_rate",       p.weight_control_rate);
+    loadInto(root, "cost/control_rate_accel", p.weight_control_rate_accel);
     loadInto(root, "cost/terminal",       p.weight_terminal);
 
     // 솔버
