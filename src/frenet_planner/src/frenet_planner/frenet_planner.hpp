@@ -72,4 +72,7 @@ private:
     bool has_last_s_ = false;
     double last_d_ = 0.0;
     double last_d_dot_ = 0.0;
+
+    // 모드 전환(LANE_KEEPING/FOLLOWING/AVOID) 시점만 로그로 찍기 위한 이전 사이클 값.
+    BehaviorState prev_mode_ = LANE_KEEPING;
 };

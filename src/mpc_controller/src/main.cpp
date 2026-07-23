@@ -178,11 +178,12 @@ int main() {
         // ±1.0에 붙어있는데도 d가 못 줄어듦 - 액추에이션/모델 한계) 때문인지,
         // 여유가 있는데도 못 줄이는 것(모델이 필요한 조향을 과소평가)인지 구분한다.
         // d/d_dot은 frenet_planner_node가 PlannedPath에 실어 보내준 값 그대로.
-        std::printf("[MPC] pos=(%.2f,%.2f) yaw=%.2f vx=%.2f | d=%.3f d_dot=%.3f | "
-                    "steer=%.3f rad (norm=%.2f) | accel_raw=%.3f m/s2 | accel=%.2f brake=%.2f | cost=%.2f\n",
-                    ego_snap.x, ego_snap.y, ego_snap.yaw, ego_snap.vx,
-                    pp.d, pp.d_dot,
-                    steer_rad, steer_norm, accel_raw, accel_norm, brake_norm, res.cost);
+        // TEMP: Object Info UDP 검증 중 로그가 너무 빨라 다른 로그를 가리므로 잠시 주석 처리.
+        // std::printf("[MPC] pos=(%.2f,%.2f) yaw=%.2f vx=%.2f | d=%.3f d_dot=%.3f | "
+        //             "steer=%.3f rad (norm=%.2f) | accel_raw=%.3f m/s2 | accel=%.2f brake=%.2f | cost=%.2f\n",
+        //             ego_snap.x, ego_snap.y, ego_snap.yaw, ego_snap.vx,
+        //             pp.d, pp.d_dot,
+        //             steer_rad, steer_norm, accel_raw, accel_norm, brake_norm, res.cost);
 
         std::this_thread::sleep_until(t0 + period);
     }

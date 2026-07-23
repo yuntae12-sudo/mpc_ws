@@ -70,6 +70,15 @@ double LookaheadTargetSpeed(const RefLine& ref, double s_start, double ego_speed
     return VelocityFromCurvature(max_k, cfg, max_lateral_accel);
 }
 
+const char* ModeName(BehaviorState mode) {
+    switch (mode) {
+        case LANE_KEEPING: return "LANE_KEEPING";
+        case FOLLOWING: return "FOLLOWING";
+        case AVOID: return "AVOID";
+        default: return "OTHER";
+    }
+}
+
 }  // namespace
 
 bool FrenetPlanner::Init(const std::string& yaml_path) {
@@ -234,6 +243,19 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
     } else {
         cmd.mode = LANE_KEEPING;
     }
+
+    if (cmd.mode != prev_mode_) {
+        std::printf("[FrenetPlanner] mode: %s -> %s (s=%.2f d=%.3f)\n",
+                     ModeName(prev_mode_), ModeName(cmd.mode), s, d);
+        if (cmd.mode == AVOID) {
+            std::printf("[FrenetPlanner]   avoid_offset=%.3f\n", avoid_offset);
+        } else if (cmd.mode == FOLLOWING) {
+            std::printf("[FrenetPlanner]   leader_s=%.2f leader_speed=%.2f leader_accel=%.2f\n",
+                         leader_s, leader_speed, leader_accel);
+        }
+        prev_mode_ = cmd.mode;
+    }
+
     cmd.target_speed = LookaheadTargetSpeed(ref_, s, ego.v, curve_speed_cfg_,
                                              limits_.max_longitudinal_accel,
                                              limits_.max_lateral_accel, limits_.max_curvature);
@@ -260,6 +282,18 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
                      stats.combined_total, stats.combined_valid_after_curvature,
                      stats.combined_valid_after_collision);
         return false;
+    }
+
+    if (cmd.mode == AVOID) {
+        // 20Hz 기준 약 4Hz로 - 회피 경로가 실제로 어떻게 나오는지(목표 offset 대비
+        // 실제 선택된 d, cost, 후보 개수) 매 사이클 다 찍으면 너무 많으니 샘플링.
+        static int avoid_tick = 0;
+        if (++avoid_tick % 5 == 0) {
+            std::printf("[FrenetPlanner] AVOID path: target_offset=%.3f chosen_d=%.3f "
+                         "cost=%.2f candidates=%zu/%zu\n",
+                         avoid_offset, best->d.back(), best->cost_total,
+                         stats.combined_valid_after_collision, stats.combined_total);
+        }
     }
 
     out_path = ConvertToCartesianPath(*best, ref_);
