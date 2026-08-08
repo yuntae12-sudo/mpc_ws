@@ -85,7 +85,10 @@ bool FrenetPlanner::Init(const std::string& yaml_path) {
     std::string waypoint_file;
     LoadParams(yaml_path, path_cfg_, limits_, cost_weights_, vehicle_shape_,
                collision_cfg_, curve_speed_cfg_, following_cfg_, avoid_cfg_,
+               visualization_cfg_,
                wheelbase_, lane_width_, waypoint_file);
+
+    debug_writer_ = std::make_unique<PlannerDebugWriter>(visualization_cfg_);
 
     if (waypoint_file.empty() || !LoadReferenceLine(waypoint_file, ref_, limits_.max_curvature)) {
         std::printf("[FrenetPlanner] Reference line load failed (waypoint_file='%s')\n",
@@ -173,6 +176,12 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
 
     constexpr double kLowSpeedFallbackV = 0.5;  // [m/s]
     if (std::fabs(ego.v) < kLowSpeedFallbackV) {
+        static int low_speed_log_tick = 0;
+        if (++low_speed_log_tick % 5 == 0) {
+            std::printf("[FrenetPlanner-STATE] mode=LOW_SPEED_FALLBACK "
+                        "s=%.2f d=%.3f speed=%.2f candidates=N/A\n",
+                        s, d, ego.v);
+        }
         return PlanLowSpeedFallback(ego, s, d, out_path);
     }
 
@@ -268,8 +277,19 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
     EvaluateCosts(candidates, cost_weights_);
 
     const FrenetPath* best = SelectBestPath(candidates);
+    const int selected_index = best
+        ? static_cast<int>(best - candidates.data())
+        : -1;
+
+    if (debug_writer_) {
+        debug_writer_->Publish(ref_, ego, start, cmd.mode, obstacles, candidates,
+                               selected_index, stats);
+    }
+
     if (!best) {
-        std::printf("[FrenetPlanner] No valid candidate this cycle (%zu generated)\n", candidates.size());
+        std::printf("[FrenetPlanner] No valid candidate this cycle "
+                    "(mode=%s, %zu generated)\n",
+                    ModeName(cmd.mode), candidates.size());
         std::printf("[FrenetPlanner-DEBUG] ego: x=%.3f y=%.3f yaw=%.3f v=%.3f a=%.3f\n",
                      ego.x, ego.y, ego.yaw, ego.v, ego.a);
         std::printf("[FrenetPlanner-DEBUG] start: s=%.2f d=%.3f s_dot=%.2f s_ddot=%.2f d_dot=%.3f d_ddot=%.3f "
@@ -284,16 +304,17 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
         return false;
     }
 
-    if (cmd.mode == AVOID) {
-        // 20Hz 기준 약 4Hz로 - 회피 경로가 실제로 어떻게 나오는지(목표 offset 대비
-        // 실제 선택된 d, cost, 후보 개수) 매 사이클 다 찍으면 너무 많으니 샘플링.
-        static int avoid_tick = 0;
-        if (++avoid_tick % 5 == 0) {
-            std::printf("[FrenetPlanner] AVOID path: target_offset=%.3f chosen_d=%.3f "
-                         "cost=%.2f candidates=%zu/%zu\n",
-                         avoid_offset, best->d.back(), best->cost_total,
-                         stats.combined_valid_after_collision, stats.combined_total);
-        }
+    // 모든 모드의 현재 상태를 20Hz 기준 약 4Hz로 출력한다. 모드 전환 로그만으로는
+    // 후보가 사라지는 바로 그 순간이 LANE_KEEPING/AVOID 중 어느 상태였는지 알 수
+    // 없으므로, s/d/속도와 필터 후 후보 수를 같은 줄에 남긴다.
+    static int state_log_tick = 0;
+    if (++state_log_tick % 5 == 0) {
+        std::printf("[FrenetPlanner-STATE] mode=%s s=%.2f d=%.3f speed=%.2f "
+                    "target_d=%.3f chosen_d=%.3f cost=%.2f candidates=%zu/%zu\n",
+                    ModeName(cmd.mode), s, d, ego.v,
+                    cmd.mode == AVOID ? avoid_offset : 0.0,
+                    best->d.empty() ? d : best->d.back(), best->cost_total,
+                    stats.combined_valid_after_collision, stats.combined_total);
     }
 
     out_path = ConvertToCartesianPath(*best, ref_);

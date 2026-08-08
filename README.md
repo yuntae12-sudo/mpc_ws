@@ -83,3 +83,22 @@ git clone -b beta_drive https://github.com/MORAI-Autonomous/MORAI-ROS_morai_msgs
 ## 7월 5일 개발 내용
 
 MPC 파일에 남아있던 필요없는 코드들 삭제
+
+## Frenet 후보 경로 실시간 시각화
+
+Planner 실행 중 별도 WSL 터미널에서 다음을 실행한다.
+
+```bash
+cd ~/mpc_ws
+MPLCONFIGDIR=/tmp/matplotlib python3 src/frenet_planner/tools/planner_visualizer.py
+```
+
+왼쪽은 전체 경로와 주행 이력, 오른쪽은 차량 주변 후보 경로 상세 화면이다.
+초록색은 유효 후보, 주황색은 곡률 탈락, 빨간색은 충돌 탈락, 굵은 자홍색은
+최종 선택 경로를 뜻한다. 설정은
+`src/frenet_planner/src/frenet_planner/config/params.yaml`의
+`planner.visualization`에서 켜거나 끌 수 있다.
+
+기본 `--view fixed`는 실행 시점의 상세 화면 범위를 고정한다. 차량을 따라가는
+화면이 필요하면 `--view follow`를 추가한다. 두 모드 모두 축·범례·전체 경로는
+재생성하지 않고 기존 그래픽 객체의 좌표만 갱신한다.

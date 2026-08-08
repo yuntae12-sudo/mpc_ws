@@ -28,6 +28,7 @@ add_executable(frenet_planner_node
   src/main.cpp
   src/frenet_planner/frenet_planner.cpp
   src/frenet_planner/global/data_logger.cpp
+  src/frenet_planner/visualization/planner_debug_writer.cpp
   src/frenet_planner/frenet/ref_line.cpp
   src/frenet_planner/frenet/path_generator.cpp
   src/frenet_planner/frenet/cost.cpp
@@ -59,6 +60,10 @@ target_compile_definitions(frenet_planner_node PRIVATE
 # ========================================
 install(TARGETS frenet_planner_node
   RUNTIME DESTINATION bin
+)
+
+install(PROGRAMS tools/planner_visualizer.py
+  DESTINATION bin
 )
 
 install(DIRECTORY src/frenet_planner/config/

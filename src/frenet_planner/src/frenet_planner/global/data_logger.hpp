@@ -6,6 +6,7 @@
 #include "frenet_planner/frenet/path_generator.hpp"
 #include "frenet_planner/frenet/cost.hpp"
 #include "frenet_planner/frenet/collision_checker.hpp"
+#include "frenet_planner/visualization/planner_debug_writer.hpp"
 
 // =========================================================
 // 곡률 기반 사전 감속 (mpc_controller의 옛 planner/path_planner.cpp 로직을
@@ -62,6 +63,7 @@ void LoadParams(const std::string& yaml_path,
                 CurveSpeedConfig& curve_speed_cfg,
                 FollowingConfig& following_cfg,
                 AvoidConfig& avoid_cfg,
+                PlannerVisualizationConfig& visualization_cfg,
                 double& wheelbase,
                 double& lane_width,
                 std::string& waypoint_file);

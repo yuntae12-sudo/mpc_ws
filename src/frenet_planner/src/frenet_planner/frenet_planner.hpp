@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <memory>
 
 #include "frenet_planner/frenet/ref_line.hpp"
 #include "frenet_planner/frenet/path_generator.hpp"
@@ -12,6 +13,7 @@
 #include "frenet_planner/global/data_logger.hpp"
 #include "frenet_planner/global/global.hpp"
 #include "frenet_planner/math/frenet_converter.hpp"
+#include "frenet_planner/visualization/planner_debug_writer.hpp"
 
 // Frenet Frame Path Planner: 전역 경로(RefLine)를 기준으로 한 Local Planner.
 // FSM(behavior_planner)이 아직 연동되지 않아서, 모드 전환 조건을 지금은
@@ -62,6 +64,8 @@ private:
     CurveSpeedConfig curve_speed_cfg_{};
     FollowingConfig following_cfg_{};
     AvoidConfig avoid_cfg_{};
+    PlannerVisualizationConfig visualization_cfg_{};
+    std::unique_ptr<PlannerDebugWriter> debug_writer_;
     double wheelbase_ = 3.0;
     double lane_width_ = 3.5;
     bool ref_loaded_ = false;

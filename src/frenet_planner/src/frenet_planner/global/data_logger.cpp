@@ -84,6 +84,7 @@ void LoadParams(const std::string& yaml_path,
                  CurveSpeedConfig& curve_speed_cfg,
                  FollowingConfig& following_cfg,
                  AvoidConfig& avoid_cfg,
+                 PlannerVisualizationConfig& visualization_cfg,
                  double& wheelbase,
                  double& lane_width,
                  std::string& waypoint_file) {
@@ -146,6 +147,10 @@ void LoadParams(const std::string& yaml_path,
     loadInto(root, "planner/avoid/trigger_distance",  avoid_cfg.trigger_distance);
     loadInto(root, "planner/avoid/trigger_max_speed", avoid_cfg.trigger_max_speed);
     loadInto(root, "planner/avoid/avoid_offset",      avoid_cfg.avoid_offset);
+
+    loadInto(root, "planner/visualization/enabled",       visualization_cfg.enabled);
+    loadInto(root, "planner/visualization/publish_hz",    visualization_cfg.publish_hz);
+    loadInto(root, "planner/visualization/snapshot_path", visualization_cfg.snapshot_path);
 
     loadInto(root, "planner/wheelbase",   wheelbase);
     loadInto(root, "planner/lane_width",  lane_width);

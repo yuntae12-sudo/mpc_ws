@@ -337,6 +337,7 @@ std::vector<FrenetPath> CombineLateralLongitudinal(const std::vector<FrenetPath>
             combined.s_d   = lon.s_d;
             combined.s_dd  = lon.s_dd;
             combined.valid = true;
+            combined.rejection_reason = RejectionReason::NONE;
             combined.cost_lat = combined.cost_lon = combined.cost_total = 0.0;
             combined.jerk_cost_lat = lat.jerk_cost_lat;
             combined.jerk_cost_lon = lon.jerk_cost_lon;
@@ -368,6 +369,7 @@ void FilterByCurvature(std::vector<FrenetPath>& combined,
         for (double k : geo.kappa) {
             if (std::abs(k) > limits.max_curvature) {
                 path.valid = false;
+                path.rejection_reason = RejectionReason::CURVATURE;
                 break;
             }
         }

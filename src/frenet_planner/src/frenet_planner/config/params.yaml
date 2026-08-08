@@ -33,6 +33,13 @@ planner:
     trigger_max_speed: 0.5    # [m/s] 이 속도 이하만 "정지 장애물"로 간주(그 이상은 Following)
     avoid_offset: 3.0         # [m] 회피 시 lateral_d1 격자를 밀어낼 크기
 
+  # --- 실시간 후보 경로 디버그 시각화 -----------------------
+  # Planner가 최신 스냅샷을 원자적으로 갱신하고 tools/planner_visualizer.py가 읽는다.
+  visualization:
+    enabled: true
+    publish_hz: 5.0
+    snapshot_path: "/tmp/frenet_planner_debug.json"
+
   # --- PathGeneratorConfig (path_generator.hpp) ---------------
   path_generator:
     lateral_d1:     { min: -3.0, max: 3.0, step: 0.5 }

@@ -72,6 +72,12 @@ struct FrenetState {
     double d_dd;    // d_ddot: accelration
 };
 
+enum class RejectionReason {
+    NONE = 0,
+    CURVATURE,
+    COLLISION,
+};
+
 // =========================================================
 // 후보 궤적 하나 (Frenet 공간)
 // PathGenerator가 생성, Cost/CollisionChecker가 읽음
@@ -111,6 +117,11 @@ struct FrenetPath {
 
     // Available Flag
     bool valid;
+
+    // 디버그 시각화용 탈락 정보. 결합 후보 이후의 필터가 갱신한다.
+    RejectionReason rejection_reason = RejectionReason::NONE;
+    int collision_object_id = -1;
+    int collision_sample_index = -1;
 };
 
 // =========================================================

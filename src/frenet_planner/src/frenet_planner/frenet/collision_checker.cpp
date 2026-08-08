@@ -100,6 +100,8 @@ void FilterByCollision(std::vector<FrenetPath>& combined,
                 OrientedBox obs_box = MakeObstacleBox(obj, path.t[i], 0.0);
                 if (CheckOBBOverlap(ego_box, obs_box)) {
                     collided = true;
+                    path.collision_object_id = obj.id;
+                    path.collision_sample_index = static_cast<int>(i);
                     break;
                 }
             }
@@ -141,6 +143,9 @@ void FilterByCollision(std::vector<FrenetPath>& combined,
                         OrientedBox obs_box = MakeObstacleBox(obj, t, 0.0);
                         if (CheckOBBOverlap(ego_box, obs_box)) {
                             collided = true;
+                            path.collision_object_id = obj.id;
+                            // coast 구간은 원래 후보의 마지막 점 이후이므로 마지막 점을 표시한다.
+                            path.collision_sample_index = static_cast<int>(path.t.size()) - 1;
                             break;
                         }
                     }
@@ -150,6 +155,7 @@ void FilterByCollision(std::vector<FrenetPath>& combined,
 
         if (collided) {
             path.valid = false;
+            path.rejection_reason = RejectionReason::COLLISION;
         }
     }
 }
