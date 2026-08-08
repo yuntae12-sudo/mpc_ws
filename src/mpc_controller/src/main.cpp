@@ -98,6 +98,13 @@ int main() {
     std::printf("[MPC] Control loop @ %.1f Hz\n", freq);
     std::printf("========================================\n");
 
+    int stuck_cycles = 0;
+    int recovery_cycles_left = 0;
+    const int stuck_timeout_cycles = std::max(1, static_cast<int>(
+        std::ceil(mpc_params.stuck_timeout * freq)));
+    const int recovery_duration_cycles = std::max(1, static_cast<int>(
+        std::ceil(mpc_params.stuck_recovery_duration * freq)));
+
     while (true) {
         const auto t0 = std::chrono::steady_clock::now();
 
@@ -124,6 +131,35 @@ int main() {
 
         // 2) PlannedPath -> ReferencePath (시간 정렬)
         ReferencePath ref = ToReferencePath(pp, mpc_params.dt, mpc_params.horizon);
+
+        // Behavior mode와 무관한 정지 데드락 판정. 정상 STOP/WAIT는 max_ref_speed가
+        // 0이고, 한 점 정지 경로는 path_progress가 0이므로 절대 진입하지 않는다.
+        double max_ref_speed = 0.0;
+        for (double v_ref : ref.v_ref) max_ref_speed = std::max(max_ref_speed, v_ref);
+        double path_progress = 0.0;
+        if (ref.size() >= 2) {
+            path_progress = std::hypot(ref.x_ref.back() - ref.x_ref.front(),
+                                       ref.y_ref.back() - ref.y_ref.front());
+        }
+        const bool forward_intent = max_ref_speed > mpc_params.stuck_target_speed &&
+                                    path_progress > mpc_params.stuck_min_path_progress;
+        const bool ego_stopped = std::fabs(ego_snap.vx) < mpc_params.stuck_ego_speed;
+
+        if (!forward_intent || !ego_stopped) {
+            stuck_cycles = 0;
+            recovery_cycles_left = 0;
+        } else if (recovery_cycles_left == 0 && ++stuck_cycles >= stuck_timeout_cycles) {
+            // 프로세스 재실행이 효과가 있었던 핵심 상태만 명시적으로 초기화한다.
+            // 경로/조향 계획은 유지하고, 이전 제동해가 새 최적화를 붙잡지 않게 한다.
+            warm_start.clear();
+            last_control = MPCControl{};
+            recovery_cycles_left = recovery_duration_cycles;
+            stuck_cycles = 0;
+            std::printf("[MPC-STUCK] recovery start: ego_v=%.2f max_ref_v=%.2f "
+                        "path_progress=%.2f duration=%.2fs\n",
+                        ego_snap.vx, max_ref_speed, path_progress,
+                        mpc_params.stuck_recovery_duration);
+        }
 
         // 3) MPC 풀기
         const MPCControl prev_control_for_debug = last_control;  // rate cost 진단용 (아래 breakdown)
@@ -157,7 +193,19 @@ int main() {
         const double steer_rad = clip(res.control.delta, -mpc_params.steering_max, mpc_params.steering_max);
         const double steer_norm = clip(steer_rad / mpc_params.steering_max, -1.0, 1.0);
 
-        const double accel_raw = res.control.accel;
+        double accel_raw = res.control.accel;
+        if (recovery_cycles_left > 0 && forward_intent && ego_stopped) {
+            // Planner가 충돌검증한 전진 경로가 있을 때만 정지마찰/solver 국소해를
+            // 벗어날 최소 가속을 한정된 시간 동안 보장한다.
+            accel_raw = std::max(accel_raw, mpc_params.stuck_launch_accel);
+            // 다음 최적화의 rate cost도 실제 차량에 보낸 입력을 기준으로 해야
+            // 복구 가속과 내부의 과거 제동 입력이 서로 싸우지 않는다.
+            last_control.accel = accel_raw;
+            --recovery_cycles_left;
+            if (recovery_cycles_left == 0) {
+                std::printf("[MPC-STUCK] recovery pulse complete; normal MPC resumed\n");
+            }
+        }
         double accel_norm = 0.0, brake_norm = 0.0;
         if (accel_raw >= 0.0) {
             accel_norm = clip(accel_raw / mpc_params.accel_max, 0.0, 1.0);

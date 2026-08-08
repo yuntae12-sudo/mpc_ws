@@ -32,7 +32,11 @@ struct CurveSpeedConfig {
 struct FollowingConfig {
     double time_gap = 1.0;              // [s] tau
     double min_gap  = 5.0;              // [m] D0
+    double gap_gain = 0.3;              // [1/s] v_cmd = v_leader + gain * gap_error
     double max_leader_search_s = 60.0;  // [m] 이 거리 안의 선두 차량만 후보로 봄
+    double min_leader_speed = 0.5;      // [m/s] 이보다 느리면 정적 장애물로 보고 FOLLOWING에서 제외
+    double exit_search_margin = 10.0;   // [m] 진입 후 탐색거리 hysteresis
+    int dropout_grace_cycles = 5;       // [cycle] ObjectInfo 일시 누락 허용(20Hz)
 };
 
 // =========================================================
@@ -41,13 +45,18 @@ struct FollowingConfig {
 // (behavior_planner 연동 시 진짜 트리거 조건으로 교체될 자리표시자)
 // =========================================================
 struct AvoidConfig {
-    double trigger_distance  = 20.0;  // [m] 이 거리 안의 장애물만 회피 트리거 검토
+    double detection_distance = 60.0; // [m] 최소 등록거리(실제값은 충돌 lookahead와 자동 조정)
+    double shift_start_distance = 25.0; // [m] 횟이동을 시작할 장애물과의 종방향 거리
     double trigger_max_speed = 0.5;   // [m/s] 이 속도 이하만 "정지 장애물"로 간주(그 이상은 Following이 처리)
     // [m] 회피 시 lateral_d1 격자를 밀어낼 크기. 자차 폭(1.9m 기준) + 장애물
     // 폭 절반씩 + 여유(0.3m)를 감안한 최소 이격(~2.2m)보다 확실히 크게 잡아야
     // avoidance_selector.cpp의 좌/우 클리어 판정이 "장애물 자신" 때문에 항상
     // 막힌 것으로 나오지 않는다.
     double avoid_offset      = 3.0;
+    double comfortable_decel = 3.0;   // [m/s^2] 추후 동적 시작거리 계산용(현재 미사용)
+    double lateral_tolerance = 0.4;   // [m] SHIFT 완료 판정
+    double pass_clearance    = 1.0;   // [m] 자차 뒤가 장애물을 통과한 뒤 추가 여유
+    bool prefer_right_when_equal = true; // 좌/우 후보 품질이 같을 때 우측 우선
 };
 
 // waypoint 파일("x y" 또는 "x,y") -> RefLine

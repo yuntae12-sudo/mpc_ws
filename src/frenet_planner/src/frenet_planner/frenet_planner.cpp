@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <iterator>
+#include <limits>
 
 #include "global/utils.hpp"
 
@@ -79,6 +81,51 @@ const char* ModeName(BehaviorState mode) {
     }
 }
 
+const char* AvoidPhaseName(int phase) {
+    switch (phase) {
+        case 0: return "TRACKING";
+        case 1: return "SHIFT";
+        case 2: return "PASS";
+        default: return "NONE";
+    }
+}
+
+// 후보 경로의 최대 기하 곡률에서 a_lat=v^2*|kappa| 한계를
+// 만족하는 속도를 계산한다. 제어/모델 오차 여유로 한계의 80%를 쓴다.
+double CandidateCurvatureSpeedLimit(const FrenetPath& path, const RefLine& ref,
+                                    double max_lateral_accel) {
+    constexpr double kLateralAccelMargin = 0.8;
+    constexpr double kMinCurvature = 1e-4;
+    const GeometricPath geo = ComputeGeometricPath(path.s, path.d, ref);
+    double max_kappa = 0.0;
+    for (double kappa : geo.kappa) max_kappa = std::max(max_kappa, std::fabs(kappa));
+    if (max_kappa < kMinCurvature) return std::numeric_limits<double>::infinity();
+    return std::sqrt(max_lateral_accel * kLateralAccelMargin / max_kappa);
+}
+
+// 재생성된 후보의 실제 샘플별 속도²×곡률을 검증한다. 단순히
+// 기하 곡률만 작은 경로가 아니라, 해당 속도에서 실제로 횡가속도
+// 한계를 만족하는 경로만 남긴다.
+void FilterByCartesianLateralAcceleration(std::vector<FrenetPath>& candidates,
+                                          const RefLine& ref,
+                                          double max_lateral_accel) {
+    constexpr double kLateralAccelMargin = 0.8;
+    const double limit = max_lateral_accel * kLateralAccelMargin;
+    for (auto& path : candidates) {
+        if (!path.valid) continue;
+        const GeometricPath geo = ComputeGeometricPath(path.s, path.d, ref);
+        const size_t count = std::min(geo.kappa.size(), path.s_d.size());
+        for (size_t i = 0; i < count; ++i) {
+            const double lateral_accel = path.s_d[i] * path.s_d[i] * std::fabs(geo.kappa[i]);
+            if (lateral_accel > limit) {
+                path.valid = false;
+                path.rejection_reason = RejectionReason::CURVATURE;
+                break;
+            }
+        }
+    }
+}
+
 }  // namespace
 
 bool FrenetPlanner::Init(const std::string& yaml_path) {
@@ -114,6 +161,7 @@ bool FrenetPlanner::Init(const std::string& yaml_path) {
 //    튀어 그 지점에서 곡률이 스파이크된다. cos 기반 smoothstep은 양끝에서
 //    기울기(d')가 0으로 자연스럽게 붙어 이 스파이크가 없다.
 bool FrenetPlanner::PlanLowSpeedFallback(const CartesianState& ego, double s, double d,
+                                          double target_d,
                                           CartesianPath& out_path) const {
     constexpr double kRecenterDistM = 15.0;   // [m] d를 0으로 되돌리는 데 쓰는 이동거리
     constexpr double kCrawlAccel = 0.5;       // [m/s^2] 완만한 가속
@@ -136,11 +184,12 @@ bool FrenetPlanner::PlanLowSpeedFallback(const CartesianState& ego, double s, do
         const double ds = s_i - s;
         const double frac = clip(ds / kRecenterDistM, 0.0, 1.0);
         // smoothstep(frac) = 0.5*(1+cos(pi*frac)): frac=0 -> d, frac=1 -> 0, 양끝 기울기 0.
-        const double d_i      = d * 0.5 * (1.0 + std::cos(M_PI * frac));
+        const double d_error = d - target_d;
+        const double d_i      = target_d + d_error * 0.5 * (1.0 + std::cos(M_PI * frac));
         const double d_prime  = (ds >= kRecenterDistM) ? 0.0
-                               : d * (-0.5 * M_PI / kRecenterDistM) * std::sin(M_PI * frac);
+                               : d_error * (-0.5 * M_PI / kRecenterDistM) * std::sin(M_PI * frac);
         const double d_pprime = (ds >= kRecenterDistM) ? 0.0
-                               : d * (-0.5 * M_PI * M_PI / (kRecenterDistM * kRecenterDistM))
+                               : d_error * (-0.5 * M_PI * M_PI / (kRecenterDistM * kRecenterDistM))
                                      * std::cos(M_PI * frac);
 
         RefPoint rp = Interpolate(ref_, s_i);
@@ -182,7 +231,18 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
                         "s=%.2f d=%.3f speed=%.2f candidates=N/A\n",
                         s, d, ego.v);
         }
-        return PlanLowSpeedFallback(ego, s, d, out_path);
+        // TRACKING 근거리에서 한 점짜리 v=0 경로를 무기한 보내던 분기는
+        // ego.v==0 -> 같은 조기 return이라는 자기잠금을 만들었다. 정적 장애물을
+        // 등록할 때 검증한 1차 회피 방향을 저속 경로의 목표로 사용해 재출발한다.
+        // 정상 속도로 회복되면 기존 좌/우 전체 후보 비교가 방향을 다시 확정한다.
+        const bool tracking_near = avoidance_.active &&
+            avoidance_.phase == AvoidPhase::TRACKING &&
+            avoidance_.obstacle_s - s <= avoid_cfg_.shift_start_distance;
+        const bool hold_avoid_target = avoidance_.active &&
+            (tracking_near || avoidance_.phase == AvoidPhase::SHIFT ||
+             avoidance_.phase == AvoidPhase::PASS);
+        const double fallback_target_d = hold_avoid_target ? avoidance_.target_d : 0.0;
+        return PlanLowSpeedFallback(ego, s, d, fallback_target_d, out_path);
     }
 
     double d_dot, d_ddot;
@@ -227,42 +287,173 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
 
     FrenetState start{s, s_dot, s_ddot, d, d_dot, d_ddot};
 
-    // FSM(behavior_planner) 미연동: 모드 전환을 여기서 직접 판단한다(클래스
-    // 헤더 주석 참고). 우선순위: AVOID(내 차선을 막는 정지/저속 장애물이
-    // 가까이 있음) > FOLLOWING(움직이는 선두 차량) > LANE_KEEPING. AVOID를
-    // 먼저 봐야 하는 이유: 정지 장애물을 "느린 선두차량"으로 보고 그냥
-    // 뒤따라가다 서버리면(Following) 실제로는 옆으로 피해야 하는 상황을
-    // 놓친다. SAT 충돌필터(FilterByCollision)는 이제 ResolveManeuver 안에서
-    // obstacles가 있을 때 항상(모드 무관) 적용된다.
+    // Behavior Planner 연동 전의 정적 장애물 AVOID context. 장애물 ID와
+    // 회피 방향을 최초 1회만 고정한다. TRACKING 동안은 LANE_KEEPING을
+    // 유지하고, 실제 기동 거리에서 SHIFT->PASS를 AVOID 안에서 수행한다.
+    // 장애물 통과 후 중앙 복귀는 중복된 RETURN 단계 대신 LANE_KEEPING이 담당한다.
     PlannerCommand cmd{};
     double avoid_offset = 0.0;
     double leader_s = 0.0, leader_speed = 0.0, leader_accel = 0.0;
-    if (FindAvoidanceTarget(ref_, start, obstacles, lane_width_, vehicle_shape_,
-                            avoid_cfg_, avoid_offset)) {
+    bool begin_avoidance = false;
+
+    // 활성 context의 장애물 위치를 새 UDP 프레임으로 갱신한다. 일시적
+    // packet dropout이 있어도 저장된 위치/길이로 회피를 계속한다.
+    if (avoidance_.active) {
+        for (const auto& obj : obstacles) {
+            if (obj.id != avoidance_.obstacle_id) continue;
+            double obj_s, obj_d, obj_s_dot;
+            ProjectObjectToFrenet(ref_, obj, obj_s, obj_d, obj_s_dot);
+            avoidance_.obstacle_s = obj_s;
+            avoidance_.obstacle_d = obj_d;
+            avoidance_.obstacle_width = obj.width;
+            avoidance_.obstacle_length = obj.length;
+            break;
+        }
+
+        const double gap = avoidance_.obstacle_s - s;
+        const double clear_distance = 0.5 * (vehicle_shape_.length + avoidance_.obstacle_length)
+                                    + avoid_cfg_.pass_clearance;
+        if (avoidance_.phase == AvoidPhase::TRACKING && gap <= avoid_cfg_.shift_start_distance) {
+            // 이 사이클에서 좌/우 전체 후보를 비교한 뒤, 유효 경로가
+            // 있는 방향만 SHIFT로 잠그다.
+            begin_avoidance = true;
+        } else if (avoidance_.phase == AvoidPhase::SHIFT &&
+                   std::fabs(d - avoidance_.target_d) <= avoid_cfg_.lateral_tolerance) {
+            avoidance_.phase = AvoidPhase::PASS;
+            std::printf("[FrenetPlanner] avoid phase: SHIFT -> PASS (id=%d gap=%.2f)\n",
+                        avoidance_.obstacle_id, gap);
+        } else if ((avoidance_.phase == AvoidPhase::SHIFT || avoidance_.phase == AvoidPhase::PASS) &&
+                   gap < -clear_distance) {
+            // 자차 뒤가 장애물을 완전히 통과했으므로 AVOID를 즉시 종료한다.
+            // 이 아래의 !avoidance_.active 탐색이 같은 사이클에서 다음 정적
+            // 장애물을 TRACKING으로 등록하고, 중앙 복귀는 LANE_KEEPING이 수행한다.
+            std::printf("[FrenetPlanner] avoid complete after PASS: id=%d gap=%.2f\n",
+                        avoidance_.obstacle_id, gap);
+            avoidance_ = AvoidanceContext{};
+        }
+    }
+
+    if (!avoidance_.active) {
+        StaticObstacleTarget target;
+        // LANE_KEEPING 충돌 필터는 reactive_lookahead 시간까지 미리 본다.
+        // 정적 장애물 추적 거리가 그보다 짧으면, 장애물을 TRACKING으로
+        // 등록하기 전에 충돌 필터가 중앙 후보를 전부 제거 -> stop path ->
+        // 등록 후 다시 가속하는 속도 급락/반등이 생긴다. 설정값은 최소
+        // 탐지거리로 쓰고, 실제 등록 거리는 "최고속도×충돌 lookahead +
+        // 차량 길이/마진"보다 항상 길게 잡는다.
+        AvoidConfig acquisition_cfg = avoid_cfg_;
+        const double collision_horizon_distance =
+            curve_speed_cfg_.target_vel * collision_cfg_.reactive_lookahead
+            + vehicle_shape_.length + collision_cfg_.safety_margin;
+        acquisition_cfg.detection_distance =
+            std::max(avoid_cfg_.detection_distance, collision_horizon_distance);
+        if (FindStaticAvoidanceTarget(ref_, start, obstacles, lane_width_, vehicle_shape_,
+                                      acquisition_cfg, target)) {
+            avoidance_.active = true;
+            avoidance_.obstacle_id = target.id;
+            avoidance_.phase = AvoidPhase::TRACKING;
+            avoidance_.obstacle_s = target.s;
+            avoidance_.obstacle_d = target.d;
+            avoidance_.obstacle_width = target.width;
+            avoidance_.obstacle_length = target.length;
+            // 저속/정지 상태에서도 영구 정지하지 않도록 selector가 확인한
+            // 1차 방향을 보관한다. 정상 속도에서는 회피 시작 직전 양쪽의
+            // 전체 후보를 비교해 더 정확한 target_d로 덮어쓴다.
+            avoidance_.target_d = target.avoidance_offset;
+            std::printf("[FrenetPlanner] static obstacle tracked: id=%d gap=%.2f "
+                        "effective_detection=%.2f\n",
+                        target.id, target.s - s, acquisition_cfg.detection_distance);
+        }
+    }
+
+    // FOLLOWING 탐색거리도 충돌 lookahead보다 항상 길게 잡아,
+    // leader를 모드 전환 전에 충돌물로만 먼저 보고 정지하는 현상을 막는다.
+    FollowingConfig effective_following_cfg = following_cfg_;
+    const double following_collision_horizon =
+        curve_speed_cfg_.target_vel * collision_cfg_.reactive_lookahead
+        + vehicle_shape_.length + collision_cfg_.safety_margin;
+    effective_following_cfg.max_leader_search_s =
+        std::max(following_cfg_.max_leader_search_s, following_collision_horizon);
+
+    // 직전 leader ID를 유지해 탐색거리 경계/패킷 누락에서 모드가
+    // FOLLOWING<->LANE_KEEPING으로 번복되지 않게 한다.
+    if (following_.active) {
+        bool id_seen = false;
+        bool leader_valid = false;
+        const double track_length = ref_.points.empty() ? 0.0 : ref_.points.back().s;
+        for (const auto& obj : obstacles) {
+            if (obj.id != following_.leader_id) continue;
+            id_seen = true;
+            double obj_s, obj_d, obj_s_dot;
+            ProjectObjectToFrenet(ref_, obj, obj_s, obj_d, obj_s_dot);
+            double gap = obj_s - s;
+            if (gap <= 0.0 && track_length > 0.0) gap += track_length;
+            const bool same_direction = obj_s_dot > following_cfg_.min_leader_speed;
+            const bool same_lane = std::fabs(obj_d) <= lane_width_ * 0.5;
+            const bool in_range = gap > 0.0 &&
+                gap <= effective_following_cfg.max_leader_search_s
+                     + following_cfg_.exit_search_margin;
+            if (same_direction && same_lane && in_range) {
+                following_.leader_s = s + gap;
+                following_.leader_d = obj_d;
+                following_.leader_speed = obj_s_dot;
+                following_.leader_accel = 0.0;
+                following_.missing_cycles = 0;
+                leader_valid = true;
+            }
+            break;
+        }
+
+        if (!leader_valid) {
+            if (id_seen) {
+                // 관측됐지만 차선/방향/범위가 바뀐 것은 dropout이 아니므로 즉시 해제.
+                following_ = FollowingContext{};
+            } else if (++following_.missing_cycles <= following_cfg_.dropout_grace_cycles) {
+                // ObjectInfo 일시 누락 동안은 직전 속도로 leader s를 예측.
+                constexpr double kPlannerCycleDt = 0.05;  // main.cpp 20Hz
+                following_.leader_s += following_.leader_speed * kPlannerCycleDt;
+            } else {
+                following_ = FollowingContext{};
+            }
+        }
+    }
+
+    if (!following_.active) {
+        LeaderTarget leader;
+        if (FindLeader(ref_, start, obstacles, lane_width_, effective_following_cfg, leader)) {
+            following_.active = true;
+            following_.leader_id = leader.id;
+            following_.leader_s = leader.s;
+            following_.leader_d = leader.d;
+            following_.leader_speed = leader.speed;
+            following_.leader_accel = leader.accel;
+            following_.missing_cycles = 0;
+            std::printf("[FrenetPlanner] leader acquired: id=%d gap=%.2f speed=%.2f "
+                        "effective_search=%.2f\n",
+                        leader.id, leader.s - s, leader.speed,
+                        effective_following_cfg.max_leader_search_s);
+        }
+    }
+
+    if (begin_avoidance || (avoidance_.active && avoidance_.phase != AvoidPhase::TRACKING)) {
         cmd.mode = AVOID;
+        avoid_offset = (avoidance_.phase == AvoidPhase::SHIFT || avoidance_.phase == AvoidPhase::PASS)
+                     ? avoidance_.target_d : 0.0;
         cmd.avoidance_d_offset = avoid_offset;
-    } else if (FindLeader(ref_, start, obstacles, lane_width_, following_cfg_,
-                          leader_s, leader_speed, leader_accel)) {
+    } else if (following_.active) {
+        leader_s = following_.leader_s;
+        leader_speed = following_.leader_speed;
+        leader_accel = following_.leader_accel;
         cmd.mode = FOLLOWING;
+        cmd.leader_id = following_.leader_id;
         cmd.leader_s = leader_s;
         cmd.leader_speed = leader_speed;
         cmd.leader_accel = leader_accel;
         cmd.time_gap = following_cfg_.time_gap;
         cmd.min_gap = following_cfg_.min_gap;
+        cmd.gap_gain = following_cfg_.gap_gain;
     } else {
         cmd.mode = LANE_KEEPING;
-    }
-
-    if (cmd.mode != prev_mode_) {
-        std::printf("[FrenetPlanner] mode: %s -> %s (s=%.2f d=%.3f)\n",
-                     ModeName(prev_mode_), ModeName(cmd.mode), s, d);
-        if (cmd.mode == AVOID) {
-            std::printf("[FrenetPlanner]   avoid_offset=%.3f\n", avoid_offset);
-        } else if (cmd.mode == FOLLOWING) {
-            std::printf("[FrenetPlanner]   leader_s=%.2f leader_speed=%.2f leader_accel=%.2f\n",
-                         leader_s, leader_speed, leader_accel);
-        }
-        prev_mode_ = cmd.mode;
     }
 
     cmd.target_speed = LookaheadTargetSpeed(ref_, s, ego.v, curve_speed_cfg_,
@@ -270,11 +461,160 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
                                              limits_.max_lateral_accel, limits_.max_curvature);
 
     PlannerDebugStats stats;
-    std::vector<FrenetPath> candidates =
-        ResolveManeuver(start, cmd, ref_, path_cfg_, limits_, lane_width_,
-                         obstacles, vehicle_shape_, collision_cfg_, &stats);
+    // TRACKING은 아직 회피를 시작하지 않는 구간이다. 8초 충돌 lookahead가
+    // 먼 정적 장애물까지 미리 중앙 경로를 전부 제거하면 stop/go가 발생하므로,
+    // 잠금된 해당 장애물만 이 구간의 충돌 필터에서 제외한다. 다른
+    // 장애물은 계속 필터링되고, 25m 진입 시 잠금 장애물도 즉시 다시 포함된다.
+    std::vector<ObjectInfo> planning_obstacles = obstacles;
+    if (avoidance_.active && avoidance_.phase == AvoidPhase::TRACKING && !begin_avoidance) {
+        planning_obstacles.erase(
+            std::remove_if(planning_obstacles.begin(), planning_obstacles.end(),
+                           [this](const ObjectInfo& obj) {
+                               return obj.id == avoidance_.obstacle_id;
+                           }),
+            planning_obstacles.end());
+    }
 
-    EvaluateCosts(candidates, cost_weights_);
+    std::vector<FrenetPath> candidates;
+    // AVOID의 고정 속도 대신 후보 곡률로 속도를 자동 결정한다.
+    // 1차 일반 목표속도 생성 -> 최적 후보 곡률의 허용속도 계산 ->
+    // 필요할 때만 낮은 목표속도로 2차 재생성 순서다.
+    auto generate_adaptive_avoid = [&](PlannerCommand& avoid_cmd, double target_d,
+                                       PlannerDebugStats& avoid_stats) {
+        auto generate_once = [&](PlannerDebugStats& generated_stats) {
+            generated_stats = PlannerDebugStats{};
+            auto generated = ResolveManeuver(start, avoid_cmd, ref_, path_cfg_, limits_,
+                                             lane_width_, planning_obstacles, vehicle_shape_,
+                                             collision_cfg_, &generated_stats);
+            EvaluateCosts(generated, cost_weights_, target_d);
+            return generated;
+        };
+
+        std::vector<FrenetPath> generated = generate_once(avoid_stats);
+        const FrenetPath* initial_best = SelectBestPath(generated);
+        if (initial_best) {
+            const double speed_limit = CandidateCurvatureSpeedLimit(
+                *initial_best, ref_, limits_.max_lateral_accel);
+            if (std::isfinite(speed_limit) && speed_limit + 0.1 < avoid_cmd.target_speed) {
+                avoid_cmd.target_speed = speed_limit;
+                generated = generate_once(avoid_stats);
+            }
+        }
+
+        FilterByCartesianLateralAcceleration(generated, ref_, limits_.max_lateral_accel);
+        // 추가 횡가속도 필터를 반영해 시각화 통계를 재계산한다.
+        avoid_stats.combined_valid_after_curvature = 0;
+        avoid_stats.combined_valid_after_collision = 0;
+        for (const auto& path : generated) {
+            if (path.valid || path.rejection_reason == RejectionReason::COLLISION) {
+                ++avoid_stats.combined_valid_after_curvature;
+            }
+            if (path.valid) ++avoid_stats.combined_valid_after_collision;
+        }
+        return generated;
+    };
+
+    if (begin_avoidance) {
+        // 장애물 d에서 자차/장애물 반폭과 SAT 안전 마진을 더한 지점을
+        // 양쪽 목표로 삼는다. 기존 ±3m 절대값보다 장애물의 실제
+        // 횡위치를 반영하므로 불필요하게 멀리 이동하지 않는다.
+        constexpr double kDirectionExtraMargin = 0.3;
+        const double clearance = 0.5 * (vehicle_shape_.width + avoidance_.obstacle_width)
+                               + collision_cfg_.safety_margin + kDirectionExtraMargin;
+        const double left_target = avoidance_.obstacle_d + clearance;
+        const double right_target = avoidance_.obstacle_d - clearance;
+
+        auto generate_side = [&](double target_d, PlannerDebugStats& side_stats,
+                                 double& used_target_speed) {
+            PlannerCommand side_cmd = cmd;
+            side_cmd.avoidance_d_offset = target_d;
+            auto side = generate_adaptive_avoid(side_cmd, target_d, side_stats);
+            used_target_speed = side_cmd.target_speed;
+            return side;
+        };
+
+        PlannerDebugStats left_stats, right_stats;
+        double left_target_speed = cmd.target_speed;
+        double right_target_speed = cmd.target_speed;
+        std::vector<FrenetPath> left_candidates =
+            generate_side(left_target, left_stats, left_target_speed);
+        std::vector<FrenetPath> right_candidates =
+            generate_side(right_target, right_stats, right_target_speed);
+        const FrenetPath* left_best = SelectBestPath(left_candidates);
+        const FrenetPath* right_best = SelectBestPath(right_candidates);
+
+        bool choose_right = false;
+        bool direction_found = left_best || right_best;
+        if (!left_best && right_best) {
+            choose_right = true;
+        } else if (left_best && right_best) {
+            const double tie_margin = std::max(1.0, std::fabs(left_best->cost_total)) * 0.05;
+            choose_right = right_best->cost_total < left_best->cost_total ||
+                (avoid_cfg_.prefer_right_when_equal &&
+                 right_best->cost_total <= left_best->cost_total + tie_margin);
+        }
+
+        if (direction_found) {
+            avoidance_.target_d = choose_right ? right_target : left_target;
+            avoidance_.phase = AvoidPhase::SHIFT;
+            cmd.avoidance_d_offset = avoidance_.target_d;
+            cmd.target_speed = choose_right ? right_target_speed : left_target_speed;
+            avoid_offset = avoidance_.target_d;
+            candidates = choose_right ? std::move(right_candidates) : std::move(left_candidates);
+            stats = choose_right ? right_stats : left_stats;
+            std::printf("[FrenetPlanner] avoid direction locked: %s id=%d gap=%.2f "
+                        "target_d=%.2f target_speed=%.2f valid(left=%zu right=%zu)\n",
+                        choose_right ? "RIGHT" : "LEFT", avoidance_.obstacle_id,
+                        avoidance_.obstacle_s - s, avoidance_.target_d, cmd.target_speed,
+                        left_stats.combined_valid_after_collision,
+                        right_stats.combined_valid_after_collision);
+        } else {
+            // 양쪽 모두 실패한 경우 방향을 잠그지 않고 두 집합을 모두
+            // 시각화한다. 상위의 no-valid 처리가 안전 정지를 보낸 뒤
+            // 다음 사이클에서 좌/우를 다시 평가한다.
+            candidates = std::move(left_candidates);
+            candidates.insert(candidates.end(),
+                              std::make_move_iterator(right_candidates.begin()),
+                              std::make_move_iterator(right_candidates.end()));
+            stats.lateral_total = left_stats.lateral_total + right_stats.lateral_total;
+            stats.lateral_valid = left_stats.lateral_valid + right_stats.lateral_valid;
+            stats.longitudinal_total = left_stats.longitudinal_total + right_stats.longitudinal_total;
+            stats.longitudinal_valid = left_stats.longitudinal_valid + right_stats.longitudinal_valid;
+            stats.combined_total = left_stats.combined_total + right_stats.combined_total;
+            stats.combined_valid_after_curvature = left_stats.combined_valid_after_curvature
+                                                 + right_stats.combined_valid_after_curvature;
+            stats.combined_valid_after_collision = 0;
+            std::printf("[FrenetPlanner] avoid direction unavailable: id=%d gap=%.2f "
+                        "valid(left=0 right=0)\n",
+                        avoidance_.obstacle_id, avoidance_.obstacle_s - s);
+        }
+    } else {
+        if (cmd.mode == AVOID) {
+            candidates = generate_adaptive_avoid(cmd, cmd.avoidance_d_offset, stats);
+        } else {
+            candidates = ResolveManeuver(start, cmd, ref_, path_cfg_, limits_, lane_width_,
+                                         planning_obstacles, vehicle_shape_, collision_cfg_, &stats);
+            EvaluateCosts(candidates, cost_weights_, 0.0);
+        }
+    }
+
+    if (cmd.mode != prev_mode_) {
+        std::printf("[FrenetPlanner] mode: %s -> %s (s=%.2f d=%.3f)\n",
+                    ModeName(prev_mode_), ModeName(cmd.mode), s, d);
+        if (cmd.mode == AVOID) {
+            std::printf("[FrenetPlanner]   avoid_id=%d phase=%s target_d=%.3f\n",
+                        avoidance_.obstacle_id,
+                        AvoidPhaseName(static_cast<int>(avoidance_.phase)), avoid_offset);
+        } else if (cmd.mode == FOLLOWING) {
+            const double gap = leader_s - s;
+            const double desired_gap = following_cfg_.min_gap
+                                     + following_cfg_.time_gap * leader_speed;
+            std::printf("[FrenetPlanner]   leader_id=%d leader_s=%.2f leader_speed=%.2f "
+                        "gap=%.2f desired_gap=%.2f\n",
+                        following_.leader_id, leader_s, leader_speed, gap, desired_gap);
+        }
+        prev_mode_ = cmd.mode;
+    }
 
     const FrenetPath* best = SelectBestPath(candidates);
     const int selected_index = best
@@ -282,7 +622,11 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
         : -1;
 
     if (debug_writer_) {
-        debug_writer_->Publish(ref_, ego, start, cmd.mode, obstacles, candidates,
+        debug_writer_->Publish(ref_, ego, start, cmd.mode,
+                               cmd.mode == AVOID
+                                   ? AvoidPhaseName(static_cast<int>(avoidance_.phase)) : "NONE",
+                               cmd.target_speed,
+                               obstacles, candidates,
                                selected_index, stats);
     }
 
@@ -309,12 +653,32 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
     // 없으므로, s/d/속도와 필터 후 후보 수를 같은 줄에 남긴다.
     static int state_log_tick = 0;
     if (++state_log_tick % 5 == 0) {
-        std::printf("[FrenetPlanner-STATE] mode=%s s=%.2f d=%.3f speed=%.2f "
-                    "target_d=%.3f chosen_d=%.3f cost=%.2f candidates=%zu/%zu\n",
-                    ModeName(cmd.mode), s, d, ego.v,
-                    cmd.mode == AVOID ? avoid_offset : 0.0,
-                    best->d.empty() ? d : best->d.back(), best->cost_total,
-                    stats.combined_valid_after_collision, stats.combined_total);
+        if (cmd.mode == FOLLOWING) {
+            const double gap = leader_s - s;
+            const double desired_gap = following_cfg_.min_gap
+                                     + following_cfg_.time_gap * leader_speed;
+            const double approach_speed = std::max(0.0, std::min(
+                cmd.target_speed,
+                leader_speed + following_cfg_.gap_gain * (gap - desired_gap)));
+            std::printf("[FrenetPlanner-STATE] mode=FOLLOWING leader_id=%d s=%.2f d=%.3f "
+                        "ego_speed=%.2f leader_speed=%.2f relative_speed=%.2f "
+                        "gap=%.2f desired_gap=%.2f gap_error=%.2f approach_speed=%.2f chosen_d=%.3f "
+                        "cost=%.2f candidates=%zu/%zu missing=%d\n",
+                        following_.leader_id, s, d, ego.v, leader_speed,
+                        ego.v - leader_speed, gap, desired_gap, gap - desired_gap,
+                        approach_speed, best->d.empty() ? d : best->d.back(), best->cost_total,
+                        stats.combined_valid_after_collision, stats.combined_total,
+                        following_.missing_cycles);
+        } else {
+            std::printf("[FrenetPlanner-STATE] mode=%s phase=%s s=%.2f d=%.3f speed=%.2f target_speed=%.2f "
+                        "target_d=%.3f chosen_d=%.3f cost=%.2f candidates=%zu/%zu\n",
+                        ModeName(cmd.mode), cmd.mode == AVOID
+                            ? AvoidPhaseName(static_cast<int>(avoidance_.phase)) : "NONE",
+                        s, d, ego.v, cmd.target_speed,
+                        cmd.mode == AVOID ? avoid_offset : 0.0,
+                        best->d.empty() ? d : best->d.back(), best->cost_total,
+                        stats.combined_valid_after_collision, stats.combined_total);
+        }
     }
 
     out_path = ConvertToCartesianPath(*best, ref_);

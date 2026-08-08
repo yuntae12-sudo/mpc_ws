@@ -25,6 +25,14 @@
 void ProjectObjectToFrenet(const RefLine& ref, const ObjectInfo& obj,
                            double& out_s, double& out_d, double& out_s_dot);
 
+struct LeaderTarget {
+    int id = -1;
+    double s = 0.0;
+    double d = 0.0;
+    double speed = 0.0;
+    double accel = 0.0;
+};
+
 // ego 앞, 내 차선 안(|d| <= lane_width/2)에서 가장 가까운 차량을 선두로 고른다.
 // cfg.max_leader_search_s보다 먼 차량은 후보에서 제외.
 // 선두를 찾으면 true + out_leader_*를 채우고, 없으면 false.
@@ -34,6 +42,6 @@ void ProjectObjectToFrenet(const RefLine& ref, const ObjectInfo& obj,
 bool FindLeader(const RefLine& ref, const FrenetState& ego,
                 const std::vector<ObjectInfo>& obstacles,
                 double lane_width, const FollowingConfig& cfg,
-                double& out_leader_s, double& out_leader_speed, double& out_leader_accel);
+                LeaderTarget& out_leader);
 
 #endif

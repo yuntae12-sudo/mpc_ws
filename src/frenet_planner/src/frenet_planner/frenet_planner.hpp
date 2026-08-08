@@ -45,6 +45,31 @@ public:
     double last_d_dot() const { return last_d_dot_; }
 
 private:
+    // TRACKING은 외부 AVOID 모드가 아니다. 정적 장애물 ID/방향만
+    // 미리 잠그고 주행은 LANE_KEEPING을 계속하는 내부 상태다.
+    enum class AvoidPhase { TRACKING, SHIFT, PASS };
+
+    struct AvoidanceContext {
+        bool active = false;
+        int obstacle_id = -1;
+        AvoidPhase phase = AvoidPhase::TRACKING;
+        double obstacle_s = 0.0;
+        double obstacle_d = 0.0;
+        double obstacle_width = 0.0;
+        double obstacle_length = 0.0;
+        double target_d = 0.0;
+    };
+
+    struct FollowingContext {
+        bool active = false;
+        int leader_id = -1;
+        double leader_s = 0.0;
+        double leader_d = 0.0;
+        double leader_speed = 0.0;
+        double leader_accel = 0.0;
+        int missing_cycles = 0;
+    };
+
     // 저속(ego.v < kLowSpeedFallbackV) 전용 fallback: CartesianToFrenet/FrenetToCartesian의
     // d_prime = d_dot/s_dot 계산은 s_dot(≈속도)로 나누는 구조라 저속에서 수학적으로
     // 특이점을 가진다("고속 모드 전용" - frenet_converter.cpp 주석 참고). 그 특이점 있는
@@ -52,7 +77,8 @@ private:
     // 시점에 억지로 꺾인 모양이 되어 곡률필터에 걸리는 문제가 실측으로 확인됐다.
     // 저속에서는 이 경계조건 역산 자체를 안 쓰고, s/d를 직접(시간에 따라 완만하게)
     // 설계해 ComputeGeometricPath로만 렌더링한다 - 나누기가 전혀 없어 특이점이 없다.
-    bool PlanLowSpeedFallback(const CartesianState& ego, double s, double d,
+    // 활성 AVOID가 있으면 중앙이 아니라 저장된 회피 target_d를 유지/추종한다.
+    bool PlanLowSpeedFallback(const CartesianState& ego, double s, double d, double target_d,
                               CartesianPath& out_path) const;
 
     RefLine ref_;
@@ -79,4 +105,6 @@ private:
 
     // 모드 전환(LANE_KEEPING/FOLLOWING/AVOID) 시점만 로그로 찍기 위한 이전 사이클 값.
     BehaviorState prev_mode_ = LANE_KEEPING;
+    AvoidanceContext avoidance_{};
+    FollowingContext following_{};
 };

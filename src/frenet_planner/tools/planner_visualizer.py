@@ -97,7 +97,8 @@ class PlannerVisualizer:
         if self.global_path:
             gx, gy = zip(*self.global_path)
             self.ax_global.plot(gx, gy, color="#777777", linewidth=1.0, alpha=0.65)
-            self.ax_local.plot(gx, gy, color="#999999", linewidth=0.8, alpha=0.45)
+            self.local_reference, = self.ax_local.plot(
+                gx, gy, color="#999999", linewidth=0.8, alpha=0.45)
             margin = 15.0
             self.ax_global.set_xlim(min(gx) - margin, max(gx) + margin)
             self.ax_global.set_ylim(min(gy) - margin, max(gy) + margin)
@@ -105,6 +106,10 @@ class PlannerVisualizer:
         r = self.local_radius
         self.ax_local.set_xlim(-r, r)
         self.ax_local.set_ylim(-r, r)
+
+        if not self.global_path:
+            self.local_reference, = self.ax_local.plot(
+                [], [], color="#999999", linewidth=0.8, alpha=0.45)
 
     def _initialize_artists(self):
         self.global_history, = self.ax_global.plot([], [], color="#168aad", linewidth=1.5)
@@ -153,6 +158,7 @@ class PlannerVisualizer:
         self.artists = [
             self.global_history, self.local_history,
             self.global_selected, self.local_selected,
+            self.local_reference,
             *self.candidate_collections.values(), self.collision_scatter,
             self.global_ego, self.local_ego, self.info_text,
             *self.obstacle_patches[self.ax_global],
@@ -172,8 +178,9 @@ class PlannerVisualizer:
         ]
         self.ax_local.legend(handles=handles, loc="lower right", fontsize=8)
 
-    def _update_obstacles(self, ax, obstacles, labels=False):
+    def _update_obstacles(self, ax, obstacles, labels=False, origin=(0.0, 0.0)):
         patches = self.obstacle_patches[ax]
+        origin_x, origin_y = origin
         for index, patch in enumerate(patches):
             if index >= len(obstacles):
                 patch.set_visible(False)
@@ -188,11 +195,13 @@ class PlannerVisualizer:
             patch.set_height(width)
             patch.set_transform(
                 Affine2D().rotate(float(obj.get("heading", 0.0)))
-                .translate(float(obj["x"]), float(obj["y"])) + ax.transData)
+                .translate(float(obj["x"]) - origin_x,
+                           float(obj["y"]) - origin_y) + ax.transData)
             patch.set_visible(True)
             if labels:
                 label = self.obstacle_labels[index]
-                label.set_position((float(obj["x"]), float(obj["y"])))
+                label.set_position((float(obj["x"]) - origin_x,
+                                    float(obj["y"]) - origin_y))
                 label.set_text(str(obj.get("id", "?")))
                 label.set_visible(True)
 
@@ -204,10 +213,24 @@ class PlannerVisualizer:
         ego = snapshot["ego"]
         stats = snapshot.get("stats", {})
         candidates = snapshot.get("candidates", [])
+        fixed_origin = (ego["x"], ego["y"]) if self.view_mode == "fixed" else (0.0, 0.0)
+        origin_x, origin_y = fixed_origin
+
+        def to_local(points):
+            if self.view_mode != "fixed":
+                return points
+            return [(point[0] - origin_x, point[1] - origin_y) for point in points]
 
         hx, hy = zip(*self.history) if self.history else ([], [])
         self.global_history.set_data(hx, hy)
-        self.local_history.set_data(hx, hy)
+        local_history = to_local(self.history)
+        lhx, lhy = zip(*local_history) if local_history else ([], [])
+        self.local_history.set_data(lhx, lhy)
+
+        if self.global_path:
+            local_reference = to_local(self.global_path)
+            rgx, rgy = zip(*local_reference)
+            self.local_reference.set_data(rgx, rgy)
 
         grouped = {key: [] for key in COLORS}
         selected = []
@@ -217,12 +240,12 @@ class PlannerVisualizer:
             if len(xy) < 2:
                 continue
             if candidate.get("selected"):
-                selected = xy
+                selected = to_local(xy)
             else:
-                grouped.setdefault(candidate.get("status", "valid"), []).append(xy)
+                grouped.setdefault(candidate.get("status", "valid"), []).append(to_local(xy))
             collision_index = candidate.get("collision_sample_index", -1)
             if candidate.get("status") == "collision" and 0 <= collision_index < len(xy):
-                collision_points.append(xy[collision_index])
+                collision_points.append(to_local([xy[collision_index]])[0])
 
         for status, collection in self.candidate_collections.items():
             collection.set_segments(grouped.get(status, []))
@@ -231,18 +254,29 @@ class PlannerVisualizer:
             sx, sy = zip(*selected)
         else:
             sx, sy = [], []
-        self.global_selected.set_data(sx, sy)
+        if selected:
+            world_selected = next(
+                (candidate.get("xy", []) for candidate in candidates
+                 if candidate.get("selected")), [])
+            wsx, wsy = zip(*world_selected) if world_selected else ([], [])
+        else:
+            wsx, wsy = [], []
+        self.global_selected.set_data(wsx, wsy)
         self.local_selected.set_data(sx, sy)
         self.collision_scatter.set_offsets(collision_points if collision_points else [(math.nan, math.nan)])
 
         ego_xy = vehicle_polygon(ego["x"], ego["y"], ego["yaw"], 4.5, 1.9)
         self.global_ego.set_xy(ego_xy)
-        self.local_ego.set_xy(ego_xy)
+        self.local_ego.set_xy(to_local(ego_xy))
         obstacles = snapshot.get("obstacles", [])[:20]
         self._update_obstacles(self.ax_global, obstacles)
-        self._update_obstacles(self.ax_local, obstacles, labels=True)
+        self._update_obstacles(self.ax_local, obstacles, labels=True, origin=fixed_origin)
 
-        if not self.local_view_initialized or self.view_mode == "follow":
+        # fixed는 모든 local artist를 ego 기준 상대좌표로 변환하므로 축 역시
+        # 항상 [-r,+r]에 고정해야 ego=(0,0)가 정확히 중앙에 온다. 예전 조건은
+        # fixed의 첫 프레임에도 world 좌표 ego±r로 축을 바꿔, 상대좌표로 그린 ego가
+        # 화면 가장자리로 밀리는 원인이었다. world 좌표 축 이동은 follow에서만 한다.
+        if self.view_mode == "follow":
             r = self.local_radius
             self.ax_local.set_xlim(ego["x"] - r, ego["x"] + r)
             self.ax_local.set_ylim(ego["y"] - r, ego["y"] + r)
@@ -253,8 +287,11 @@ class PlannerVisualizer:
         lat_rejected = stats.get("lateral_total", 0) - stats.get("lateral_valid", 0)
         lon_rejected = stats.get("longitudinal_total", 0) - stats.get("longitudinal_valid", 0)
         info = (
-            f"mode: {snapshot.get('mode', '?')}\n"
-            f"speed: {ego.get('v', 0.0):.2f} m/s   d: {ego.get('d', 0.0):.2f} m\n"
+            f"mode: {snapshot.get('mode', '?')}"
+            f" / {snapshot.get('phase', 'NONE')}\n"
+            f"speed: {ego.get('v', 0.0):.2f} m/s"
+            f"   target: {snapshot.get('target_speed', 0.0):.2f} m/s"
+            f"   d: {ego.get('d', 0.0):.2f} m\n"
             f"combined: {stats.get('combined_total', 0)}   valid: {stats.get('after_collision', 0)}\n"
             f"rejected  lat_acc:{lat_rejected}  lon_acc:{lon_rejected}\n"
             f"          curvature:{curv_rejected}  collision:{collision_rejected}"
@@ -276,9 +313,11 @@ def main():
     parser.add_argument("--snapshot", type=Path,
                         default=Path("/tmp/frenet_planner_debug.json"))
     parser.add_argument("--global-path", type=Path, default=default_global)
-    parser.add_argument("--local-radius", type=float, default=35.0)
+    parser.add_argument("--local-radius", type=float, default=60.0,
+                        help="half-width of the local view in metres (default: 60)")
     parser.add_argument("--view", choices=("fixed", "follow"), default="fixed",
-                        help="fixed keeps the initial local viewport; follow tracks ego")
+                        help="fixed uses a flicker-free ego-centred viewport; "
+                             "follow pans world-coordinate axes with ego")
     args = parser.parse_args()
 
     global_path = load_global_path(args.global_path)

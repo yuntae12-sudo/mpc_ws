@@ -98,6 +98,15 @@ struct MPCParams {
     double vel_min          = 0.0;     // [m/s]
     double vel_max          = 30.0;    // [m/s]
 
+    // 모드 독립 정지 데드락 감지/복구. 목표 경로는 전진하는데 실제 차량만
+    // 멈춘 상태가 지속될 때 solver의 제동 warm-start를 비우고 제한된 재출발을 한다.
+    double stuck_ego_speed = 0.1;       // [m/s]
+    double stuck_target_speed = 0.3;    // [m/s]
+    double stuck_min_path_progress = 0.5; // [m]
+    double stuck_timeout = 1.0;         // [s]
+    double stuck_recovery_duration = 0.75; // [s]
+    double stuck_launch_accel = 0.5;    // [m/s^2]
+
     // 비용 가중치
     double weight_path_error    = 5.0;
     double weight_heading_error = 2.0;

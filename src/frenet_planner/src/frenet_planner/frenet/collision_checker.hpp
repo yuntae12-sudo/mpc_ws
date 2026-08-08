@@ -75,12 +75,18 @@ bool CheckOBBOverlap(const OrientedBox& a, const OrientedBox& b);
 // 격자 크기 요구사항이 바뀔 수 있으므로, 그 시점에 실측하면서 broad-phase
 // 거리컷 같은 최적화를 같이 넣는 게 지금 미리 손대는 것보다 낫다고 판단함
 // (2026-07 오프라인 벤치마크로 확인 후 보류 결정).
+//
+// reactive_coast_exempt_object_id는 FOLLOWING이 종방향으로 직접 제어하는
+// leader ID다. 해당 객체도 후보의 실제 시간 구간에서는 반드시 검사하지만,
+// 후보 종료 이후 terminal 속도를 고정하는 coast 연장에서만 제외한다.
+// -1이면 제외 대상이 없다.
 // =========================================================
 
 void FilterByCollision(std::vector<FrenetPath>& combined,
                         const RefLine& ref,
                         const std::vector<ObjectInfo>& obstacles,
                         const VehicleShape& ego_shape,
-                        const CollisionCheckConfig& cfg);
+                        const CollisionCheckConfig& cfg,
+                        int reactive_coast_exempt_object_id = -1);
 
 #endif

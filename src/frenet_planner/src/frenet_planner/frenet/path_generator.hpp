@@ -28,6 +28,7 @@ struct SamplingRange {
 
 struct PathGeneratorConfig {
     SamplingRange lateral_d1;      // 목표 횡방향 오프셋 d1 후보 범위 [m] (Sec.IV-A)
+    double lateral_target_tolerance = 0.5; // [m] 모드가 지정한 목표 d 주변 탐색 폭
     SamplingRange time_horizon;    // 종료시간 Tj 후보 범위 [s] (lateral/longitudinal 공통)
     SamplingRange delta_s;         // following/merging/stopping용 Δsi 범위 [m] (Sec.V-A)
     SamplingRange delta_s_dot;     // velocity keeping용 Δṡi 범위 [m/s] (Sec.V-B)
@@ -82,8 +83,11 @@ std::vector<FrenetPath> GenerateLateralCandidates(const FrenetState& start,
 //   s_target(t)  = s_lv(t) - [min_gap + time_gap * ṡ_lv(t)]
 //   ṡ_target(t)  = ṡ_lv(t) - time_gap * leader_accel
 //   s̈_target(t)  = leader_accel                              (논문 Sec.V-A "Following")
-// 를 구성하고, 각 Tj에서 [s_target(Tj)+Δsi, ṡ_target(Tj), s̈_target(Tj), Tj] 를
-// 종료조건으로 하는 quintic 후보 집합을 cfg.delta_s × cfg.time_horizon 격자로 생성한다.
+// 를 구성한다. 목표가 현재 horizon 밖에 있을 때는
+//   v_approach = clamp(v_lv + gap_gain * (gap - desired_gap), 0, cruise_target_speed)
+// 로 접근하며, 목표가 horizon 안에 들어오면 위 constant-time-gap 종료조건을 쓴다.
+// 각 Tj에서 [s_target(Tj)+Δsi, ṡ_target(Tj), s̈_target(Tj), Tj]를 종료조건으로 하는
+// quintic 후보 집합을 cfg.delta_s × cfg.time_horizon 격자로 생성한다.
 // =========================================================
 
 std::vector<FrenetPath> GenerateFollowingCandidates(const FrenetState& start,
@@ -92,6 +96,8 @@ std::vector<FrenetPath> GenerateFollowingCandidates(const FrenetState& start,
                                                      double leader_accel,
                                                      double time_gap,
                                                      double min_gap,
+                                                     double cruise_target_speed,
+                                                     double gap_gain,
                                                      const PathGeneratorConfig& cfg);
 
 // =========================================================

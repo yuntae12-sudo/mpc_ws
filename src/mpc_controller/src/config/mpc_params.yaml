@@ -35,3 +35,13 @@ constraints:
   velocity:
     min: 0.0
     max: 60.0
+
+# 목표 경로가 실제로 전진하는데 차량만 정지한 경우의 공통 복구 계층.
+# STOP/WAIT처럼 경로 목표속도가 0인 정상 정지에는 작동하지 않는다.
+stuck_recovery:
+  ego_speed_threshold: 0.1     # [m/s] 이 이하면 정지로 판정
+  target_speed_threshold: 0.3  # [m/s] 경로가 이보다 빨라야 주행 의도가 있다고 판정
+  min_path_progress: 0.5       # [m] horizon 경로가 실제 전진해야 함
+  timeout: 1.0                 # [s] 정지가 이 시간 지속되면 복구 시작
+  duration: 0.75               # [s] 한 번의 제한된 launch assist 시간
+  launch_accel: 0.5            # [m/s^2] 복구 중 최소 요구 가속도

@@ -24,14 +24,23 @@ planner:
   following:
     time_gap: 1.0              # [s] tau - 목표 gap = min_gap + time_gap*leader_speed
     min_gap: 5.0               # [m] D0 - 정지 시에도 유지할 최소 거리
+    gap_gain: 0.3              # [1/s] 간격 오차를 접근 속도로 변환하는 폐루프 이득
     max_leader_search_s: 60.0  # [m] 이 거리 안의 선두 차량만 후보로 봄
+    min_leader_speed: 0.5      # [m/s] 이 이하는 정적 장애물로 보고 FOLLOWING에서 제외
+    exit_search_margin: 10.0   # [m] 진입 후 선두차량 유지용 탐색거리 hysteresis
+    dropout_grace_cycles: 5    # [cycle] ObjectInfo 일시 누락 허용(20Hz 기준 0.25s)
 
   # --- AVOID (Sec.VI SAT 충돌필터 + lateral 오프셋). FSM 미연동 상태의
   # 임시 트리거: "내 차선을 막는 정지/저속 장애물이 가까이 있으면 피한다" ---
   avoid:
-    trigger_distance: 20.0    # [m] 이 거리 안의 장애물만 회피 트리거 검토
+    detection_distance: 60.0  # [m] 최소 등록거리(충돌 lookahead가 더 길면 자동 확장)
+    shift_start_distance: 25.0 # [m] 이 거리부터 횡이동 시작
     trigger_max_speed: 0.5    # [m/s] 이 속도 이하만 "정지 장애물"로 간주(그 이상은 Following)
     avoid_offset: 3.0         # [m] 회피 시 lateral_d1 격자를 밀어낼 크기
+    comfortable_decel: 3.0    # [m/s^2] 추후 동적 시작거리 계산용(현재 미사용)
+    lateral_tolerance: 0.4    # [m] SHIFT 횟이동 완료 판정
+    pass_clearance: 1.0       # [m] 자차/장애물 길이 외 추가 통과 여유
+    prefer_right_when_equal: true # 좌/우 valid 품질이 거의 같으면 우측 우선
 
   # --- 실시간 후보 경로 디버그 시각화 -----------------------
   # Planner가 최신 스냅샷을 원자적으로 갱신하고 tools/planner_visualizer.py가 읽는다.
@@ -43,6 +52,7 @@ planner:
   # --- PathGeneratorConfig (path_generator.hpp) ---------------
   path_generator:
     lateral_d1:     { min: -3.0, max: 3.0, step: 0.5 }
+    lateral_target_tolerance: 0.5 # [m] 모드별 목표 d 주변에서만 후보 생성
     # min=2.0이면 lateral 보정 시간(T)이 MPC horizon(28*0.05=1.4s)보다 길어서
     # MPC가 그 보정의 극히 일부만 보고 계획하게 되고, offset이 커질수록 quintic
     # jerk 비용 때문에 오히려 더 긴 T를 고르게 돼(실측: best_T가 2.0→5.0까지 계속

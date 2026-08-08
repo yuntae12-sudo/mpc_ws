@@ -69,7 +69,8 @@ void FilterByCollision(std::vector<FrenetPath>& combined,
                         const RefLine& ref,
                         const std::vector<ObjectInfo>& obstacles,
                         const VehicleShape& ego_shape,
-                        const CollisionCheckConfig& cfg) {
+                        const CollisionCheckConfig& cfg,
+                        int reactive_coast_exempt_object_id) {
     // 이 값은 나눗셈이 아니라 "정지 상태면 coast 연장 추정을 할 필요가 없다"는
     // 최적화 판단에만 쓰인다 (아래 reactive-lookahead 섹션). 곡률/충돌 본 검사
     // 자체는 더 이상 이 임계값에 의존하지 않는다 (ComputeGeometricPath 참고).
@@ -140,6 +141,10 @@ void FilterByCollision(std::vector<FrenetPath>& combined,
                     OrientedBox ego_box = MakeEgoBox(cs, ego_shape, coast_margin);
 
                     for (const auto& obj : obstacles) {
+                        // FOLLOWING leader는 다음 20Hz replanning에서 gap law로
+                        // 계속 감속 제어된다. 실제 후보 구간의 검사는 유지하고,
+                        // 그 제어를 무시한 constant-speed coast 구간에서만 제외한다.
+                        if (obj.id == reactive_coast_exempt_object_id) continue;
                         OrientedBox obs_box = MakeObstacleBox(obj, t, 0.0);
                         if (CheckOBBOverlap(ego_box, obs_box)) {
                             collided = true;

@@ -64,6 +64,8 @@ void PlannerDebugWriter::Publish(const RefLine& ref,
                                  const CartesianState& ego,
                                  const FrenetState& start,
                                  BehaviorState mode,
+                                 const char* phase,
+                                 double target_speed,
                                  const std::vector<ObjectInfo>& obstacles,
                                  const std::vector<FrenetPath>& candidates,
                                  int selected_index,
@@ -78,6 +80,8 @@ void PlannerDebugWriter::Publish(const RefLine& ref,
     std::ostringstream out;
     out << std::setprecision(8);
     out << "{\"mode\":\"" << ModeName(mode) << "\"";
+    out << ",\"phase\":\"" << (phase ? phase : "NONE") << "\"";
+    out << ",\"target_speed\":"; WriteNumber(out, target_speed);
     out << ",\"ego\":{";
     out << "\"x\":"; WriteNumber(out, ego.x);
     out << ",\"y\":"; WriteNumber(out, ego.y);

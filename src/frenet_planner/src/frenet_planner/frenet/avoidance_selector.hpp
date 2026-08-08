@@ -8,18 +8,21 @@
 #include "frenet_planner/global/data_logger.hpp"
 #include "frenet_planner/global/global.hpp"
 
-// =========================================================
-// obstacles 중 "내 차선을 막고 있는 정지/저속 장애물"이 근처에 있으면
-// true + 회피 방향/크기(out_offset, lateral_d1 격자에 그대로 더해짐 -
-// path_generator.cpp의 ResolveLateralOffset 참고)를 반환한다.
-// FSM 미연동 상태의 임시 판단 기준(AvoidConfig 주석 참고).
-//
-// ProjectObjectToFrenet(leader_selector.hpp)을 재사용한다 - Following과
-// 마찬가지로 "장애물 하나를 Frenet으로 투영"하는 로직은 공통.
-// =========================================================
-bool FindAvoidanceTarget(const RefLine& ref, const FrenetState& ego,
-                         const std::vector<ObjectInfo>& obstacles,
-                         double lane_width, const VehicleShape& vehicle_shape,
-                         const AvoidConfig& cfg, double& out_offset);
+struct StaticObstacleTarget {
+    int id = -1;
+    double s = 0.0;
+    double d = 0.0;
+    double s_dot = 0.0;
+    double width = 0.0;
+    double length = 0.0;
+    double avoidance_offset = 0.0;
+};
+
+// 내 차선 전방의 가장 가까운 정적 장애물과 최초 회피 방향을 반환한다.
+// 반환된 ID/방향은 상위 AvoidanceContext가 회피 종료까지 고정한다.
+bool FindStaticAvoidanceTarget(const RefLine& ref, const FrenetState& ego,
+                               const std::vector<ObjectInfo>& obstacles,
+                               double lane_width, const VehicleShape& vehicle_shape,
+                               const AvoidConfig& cfg, StaticObstacleTarget& out_target);
 
 #endif

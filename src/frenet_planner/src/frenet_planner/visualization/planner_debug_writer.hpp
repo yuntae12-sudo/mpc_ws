@@ -22,6 +22,8 @@ public:
                  const CartesianState& ego,
                  const FrenetState& start,
                  BehaviorState mode,
+                 const char* phase,
+                 double target_speed,
                  const std::vector<ObjectInfo>& obstacles,
                  const std::vector<FrenetPath>& candidates,
                  int selected_index,

@@ -56,6 +56,13 @@ void loadMPCParameters(const std::string& yaml_path)
     loadInto(root, "constraints/velocity/min",       p.vel_min);
     loadInto(root, "constraints/velocity/max",       p.vel_max);
 
+    loadInto(root, "stuck_recovery/ego_speed_threshold", p.stuck_ego_speed);
+    loadInto(root, "stuck_recovery/target_speed_threshold", p.stuck_target_speed);
+    loadInto(root, "stuck_recovery/min_path_progress", p.stuck_min_path_progress);
+    loadInto(root, "stuck_recovery/timeout", p.stuck_timeout);
+    loadInto(root, "stuck_recovery/duration", p.stuck_recovery_duration);
+    loadInto(root, "stuck_recovery/launch_accel", p.stuck_launch_accel);
+
     // 비용 가중치
     loadInto(root, "cost/path_error",     p.weight_path_error);
     loadInto(root, "cost/heading_error",  p.weight_heading_error);

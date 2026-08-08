@@ -1,6 +1,6 @@
 #include "frenet_planner/frenet/cost.hpp"
 
-double ComputeLateralCost(const FrenetPath& path, const CostWeights& w) {
+double ComputeLateralCost(const FrenetPath& path, const CostWeights& w, double target_d) {
     const double T  = path.t.empty() ? 0.0 : path.t.back();
     const double d1 = path.d.empty() ? 0.0 : path.d.back();
 
@@ -9,10 +9,13 @@ double ComputeLateralCost(const FrenetPath& path, const CostWeights& w) {
     double d_path_integral = 0.0;
     for (size_t i = 0; i + 1 < path.d.size(); ++i) {
         const double dt = path.t[i + 1] - path.t[i];
-        d_path_integral += 0.5 * (path.d[i] * path.d[i] + path.d[i + 1] * path.d[i + 1]) * dt;
+        const double e0 = path.d[i] - target_d;
+        const double e1 = path.d[i + 1] - target_d;
+        d_path_integral += 0.5 * (e0 * e0 + e1 * e1) * dt;
     }
 
-    return w.kj * path.jerk_cost_lat + w.kt * T + w.kd * d1 * d1
+    const double terminal_error = d1 - target_d;
+    return w.kj * path.jerk_cost_lat + w.kt * T + w.kd * terminal_error * terminal_error
          + w.kd_path * d_path_integral;
 }
 
@@ -28,9 +31,9 @@ double ComputeTotalCost(double cost_lat, double cost_lon, const CostWeights& w) 
     return w.klat * cost_lat + w.klon * cost_lon;
 }
 
-void EvaluateCosts(std::vector<FrenetPath>& candidates, const CostWeights& w) {
+void EvaluateCosts(std::vector<FrenetPath>& candidates, const CostWeights& w, double target_d) {
     for (auto& path : candidates) {
-        path.cost_lat   = ComputeLateralCost(path, w);
+        path.cost_lat   = ComputeLateralCost(path, w, target_d);
         path.cost_lon   = ComputeLongitudinalCost(path, w);
         path.cost_total = ComputeTotalCost(path.cost_lat, path.cost_lon, w);
     }

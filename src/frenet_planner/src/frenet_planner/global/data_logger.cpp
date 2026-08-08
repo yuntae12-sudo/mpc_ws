@@ -100,6 +100,7 @@ void LoadParams(const std::string& yaml_path,
     loadInto(root, "planner/path_generator/lateral_d1/min",   path_cfg.lateral_d1.min);
     loadInto(root, "planner/path_generator/lateral_d1/max",   path_cfg.lateral_d1.max);
     loadInto(root, "planner/path_generator/lateral_d1/step",  path_cfg.lateral_d1.step);
+    loadInto(root, "planner/path_generator/lateral_target_tolerance", path_cfg.lateral_target_tolerance);
     loadInto(root, "planner/path_generator/time_horizon/min", path_cfg.time_horizon.min);
     loadInto(root, "planner/path_generator/time_horizon/max", path_cfg.time_horizon.max);
     loadInto(root, "planner/path_generator/time_horizon/step",path_cfg.time_horizon.step);
@@ -142,11 +143,20 @@ void LoadParams(const std::string& yaml_path,
 
     loadInto(root, "planner/following/time_gap",             following_cfg.time_gap);
     loadInto(root, "planner/following/min_gap",              following_cfg.min_gap);
+    loadInto(root, "planner/following/gap_gain",             following_cfg.gap_gain);
     loadInto(root, "planner/following/max_leader_search_s",  following_cfg.max_leader_search_s);
+    loadInto(root, "planner/following/min_leader_speed",     following_cfg.min_leader_speed);
+    loadInto(root, "planner/following/exit_search_margin",   following_cfg.exit_search_margin);
+    loadInto(root, "planner/following/dropout_grace_cycles", following_cfg.dropout_grace_cycles);
 
-    loadInto(root, "planner/avoid/trigger_distance",  avoid_cfg.trigger_distance);
+    loadInto(root, "planner/avoid/detection_distance", avoid_cfg.detection_distance);
+    loadInto(root, "planner/avoid/shift_start_distance", avoid_cfg.shift_start_distance);
     loadInto(root, "planner/avoid/trigger_max_speed", avoid_cfg.trigger_max_speed);
     loadInto(root, "planner/avoid/avoid_offset",      avoid_cfg.avoid_offset);
+    loadInto(root, "planner/avoid/comfortable_decel", avoid_cfg.comfortable_decel);
+    loadInto(root, "planner/avoid/lateral_tolerance", avoid_cfg.lateral_tolerance);
+    loadInto(root, "planner/avoid/pass_clearance",    avoid_cfg.pass_clearance);
+    loadInto(root, "planner/avoid/prefer_right_when_equal", avoid_cfg.prefer_right_when_equal);
 
     loadInto(root, "planner/visualization/enabled",       visualization_cfg.enabled);
     loadInto(root, "planner/visualization/publish_hz",    visualization_cfg.publish_hz);

@@ -2,6 +2,7 @@
 #include "frenet_planner/math/polynomial.hpp"
 #include "frenet_planner/math/frenet_converter.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 // =========================================================
@@ -144,11 +145,23 @@ std::vector<FrenetPath> GenerateFollowingCandidates(const FrenetState& start,
                                                      double leader_accel,
                                                      double time_gap,
                                                      double min_gap,
+                                                     double cruise_target_speed,
+                                                     double gap_gain,
                                                      const PathGeneratorConfig& cfg) {
     std::vector<FrenetPath> result;
 
     std::vector<double> delta_list = SampleRange(cfg.delta_s);
     std::vector<double> T_list     = SampleRange(cfg.time_horizon);
+
+    // Constant-time-gap 오차를 접근 속도로 피드백한다. 목표 간격보다 멀면
+    // leader보다 빠르게 접근하고, 목표 간격에서는 leader 속도와 같아진다.
+    // 상한은 도로 곡률 등을 반영해 상위 planner가 정한 순항 목표속도이다.
+    const double current_gap = leader_s - start.s;
+    const double desired_gap_now = min_gap + time_gap * leader_speed;
+    const double gap_error = current_gap - desired_gap_now;
+    const double raw_approach_speed = leader_speed + gap_gain * gap_error;
+    const double approach_speed = std::max(0.0, std::min(cruise_target_speed,
+                                                         raw_approach_speed));
 
     for (double T : T_list) {
         if (T <= 1e-6) continue;
@@ -158,12 +171,21 @@ std::vector<FrenetPath> GenerateFollowingCandidates(const FrenetState& start,
         const double s_lv_T     = leader_s + leader_speed * T + 0.5 * leader_accel * T * T;
         const double s_lv_dot_T = leader_speed + leader_accel * T;
 
-        // s_target(t) = s_lv(t) - [D0 + tau*s_lv_dot(t)]  (D0=min_gap, tau=time_gap)
-        const double s_target_T     = s_lv_T - (min_gap + time_gap * s_lv_dot_T);
+        // s_follow(t) = s_lv(t) - [D0 + tau*s_lv_dot(t)] (D0=min_gap, tau=time_gap).
+        // leader가 멀리 있을 때 following 지점을 한 horizon 안에 강제로 맞추면
+        // 비현실적인 quintic이 된다. 그 경우에는 현재 속도를 고정하지 않고,
+        // 위의 간격 피드백으로 계산한 접근 속도까지 부드럽게 천이한다.
+        const double s_follow_T = s_lv_T - (min_gap + time_gap * s_lv_dot_T);
+        const double free_s_T = start.s + 0.5 * (start.s_d + approach_speed) * T;
         // s_dot_target(t) = s_lv_dot(t) - tau*s_lv_ddot(t), s_lv_ddot=leader_accel(상수)
-        const double s_target_dot_T = s_lv_dot_T - time_gap * leader_accel;
+        const double s_follow_dot_T = s_lv_dot_T - time_gap * leader_accel;
         // s_ddot_target(t) = s_lv_ddot(t1) = leader_accel (상수, jerk=0 가정)
-        const double s_target_ddot_T = leader_accel;
+        const double s_follow_ddot_T = leader_accel;
+
+        const bool gap_control_needed = s_follow_T <= free_s_T;
+        const double s_target_T = gap_control_needed ? s_follow_T : free_s_T;
+        const double s_target_dot_T = gap_control_needed ? s_follow_dot_T : approach_speed;
+        const double s_target_ddot_T = gap_control_needed ? s_follow_ddot_T : 0.0;
 
         for (double delta : delta_list) {
             const double s1 = s_target_T + delta;
@@ -409,11 +431,13 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
                                          const VehicleShape& vehicle_shape,
                                          const CollisionCheckConfig& collision_cfg,
                                          PlannerDebugStats* stats) {
-    // 1. lateral 후보 (필요 시 목표 오프셋만큼 d1 격자를 평행이동)
+    // 1. lateral 후보. 전 모드에 공유된 [-3,+3]m 격자를 쓰면
+    // LANE_KEEPING에서도 먼 장애물을 보고 옆 후보가 선택된다. 모드가
+    // 지정한 목표 d 주변의 작은 범위만 생성해 역할을 분리한다.
     PathGeneratorConfig lateral_cfg = cfg;
     const double d_offset = ResolveLateralOffset(cmd, lane_width);
-    lateral_cfg.lateral_d1.min += d_offset;
-    lateral_cfg.lateral_d1.max += d_offset;
+    lateral_cfg.lateral_d1.min = d_offset - cfg.lateral_target_tolerance;
+    lateral_cfg.lateral_d1.max = d_offset + cfg.lateral_target_tolerance;
 
     std::vector<FrenetPath> lateral_set = GenerateLateralCandidates(start, lateral_cfg);
     FilterLateralByAcceleration(lateral_set, limits);
@@ -429,7 +453,8 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
         case FOLLOWING:
             longitudinal_set = GenerateFollowingCandidates(start, cmd.leader_s, cmd.leader_speed,
                                                             cmd.leader_accel, cmd.time_gap,
-                                                            cmd.min_gap, cfg);
+                                                            cmd.min_gap, cmd.target_speed,
+                                                            cmd.gap_gain, cfg);
             break;
 
         case STOP:
@@ -478,7 +503,9 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
     // 4. 충돌 필터링(Sec.VI) - obstacles가 없으면 아무 것도 안 걸러지므로
     // 안전하게 항상 호출해도 된다(장애물 없을 때 기존 동작과 동일).
     if (!obstacles.empty()) {
-        FilterByCollision(combined, ref, obstacles, vehicle_shape, collision_cfg);
+        const int coast_exempt_id = (cmd.mode == FOLLOWING) ? cmd.leader_id : -1;
+        FilterByCollision(combined, ref, obstacles, vehicle_shape, collision_cfg,
+                          coast_exempt_id);
     }
     if (stats) {
         for (const auto& p : combined) if (p.valid) stats->combined_valid_after_collision++;

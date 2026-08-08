@@ -30,15 +30,17 @@ bool IsSideClear(const RefLine& ref, const FrenetState& ego,
 
 }  // namespace
 
-bool FindAvoidanceTarget(const RefLine& ref, const FrenetState& ego,
-                         const std::vector<ObjectInfo>& obstacles,
-                         double lane_width, const VehicleShape& vehicle_shape,
-                         const AvoidConfig& cfg, double& out_offset) {
+bool FindStaticAvoidanceTarget(const RefLine& ref, const FrenetState& ego,
+                               const std::vector<ObjectInfo>& obstacles,
+                               double lane_width, const VehicleShape& vehicle_shape,
+                               const AvoidConfig& cfg, StaticObstacleTarget& out_target) {
     const double half_lane = lane_width * 0.5;
 
     // 1. 내 차선을 막고 있는 정지/저속 장애물 중 가장 가까운 것을 찾는다.
     bool found = false;
     double best_gap = std::numeric_limits<double>::max();
+    const ObjectInfo* best_obj = nullptr;
+    double best_s = 0.0, best_d = 0.0, best_s_dot = 0.0;
 
     for (const auto& obj : obstacles) {
         double s, d, s_dot;
@@ -51,15 +53,23 @@ bool FindAvoidanceTarget(const RefLine& ref, const FrenetState& ego,
         // 정지해 있다"는 실제 의도가 맞게 반영된다. 회전교차로처럼 차량이
         // 선회하며 접근하는 경우도 마찬가지로 raw speed와 s_dot이 갈릴 수
         // 있어 경로 기준 값을 써야 한다.
-        if (std::fabs(s_dot) > cfg.trigger_max_speed) continue;  // Following이 처리할 movtng 장애물
+        if (std::fabs(s_dot) > cfg.trigger_max_speed) {
+            // TODO(dynamic avoidance): 상대속도/TTC/미래 위치를 이용한 동적
+            // 장애물 회피를 같은 AVOID 모드의 별도 context로 추가할 것.
+            continue;
+        }
 
         const double gap = s - ego.s;
-        if (gap <= 0.0 || gap > cfg.trigger_distance) continue;
+        if (gap <= 0.0 || gap > cfg.detection_distance) continue;
         if (std::fabs(d) > half_lane) continue;  // 내 차선 밖은 안 막고 있음
 
         if (gap < best_gap) {
             best_gap = gap;
             found = true;
+            best_obj = &obj;
+            best_s = s;
+            best_d = d;
+            best_s_dot = s_dot;
         }
     }
 
@@ -70,15 +80,21 @@ bool FindAvoidanceTarget(const RefLine& ref, const FrenetState& ego,
     // FilterByCollision(SAT)이 그 오프셋 후보들까지 다시 검사해서 보장한다
     // (다 막혀있으면 valid 후보가 0개가 되어 상위(main.cpp)의 정지 폴백으로
     // 안전하게 넘어감).
-    const bool left_clear  = IsSideClear(ref, ego, obstacles,  cfg.avoid_offset, vehicle_shape, cfg.trigger_distance);
-    const bool right_clear = IsSideClear(ref, ego, obstacles, -cfg.avoid_offset, vehicle_shape, cfg.trigger_distance);
+    const bool left_clear  = IsSideClear(ref, ego, obstacles,  cfg.avoid_offset, vehicle_shape, cfg.detection_distance);
+    const bool right_clear = IsSideClear(ref, ego, obstacles, -cfg.avoid_offset, vehicle_shape, cfg.detection_distance);
 
     if (left_clear) {
-        out_offset = cfg.avoid_offset;
+        out_target.avoidance_offset = cfg.avoid_offset;
     } else if (right_clear) {
-        out_offset = -cfg.avoid_offset;
+        out_target.avoidance_offset = -cfg.avoid_offset;
     } else {
-        out_offset = cfg.avoid_offset;
+        out_target.avoidance_offset = cfg.avoid_offset;
     }
+    out_target.id = best_obj->id;
+    out_target.s = best_s;
+    out_target.d = best_d;
+    out_target.s_dot = best_s_dot;
+    out_target.width = best_obj->width;
+    out_target.length = best_obj->length;
     return true;
 }

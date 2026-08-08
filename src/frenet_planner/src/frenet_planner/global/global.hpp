@@ -47,11 +47,13 @@ struct PlannerCommand {
     double stop_position;              // STOP 모드: 정지 목표 s 좌표 [m]
 
     // 4. FOLLOWING 전용
+    int leader_id;                      // coast 연장 충돌검사에서 제어 대상 식별
     double leader_s;                   // 선두 차량 위치 [m]
     double leader_speed;               // 선두 차량 속도 [m/s]
     double leader_accel;               // 선두 차량 가속도
     double time_gap;                   // taw
     double min_gap;                    // D0 [m]
+    double gap_gain;                   // 간격 오차를 접근 속도로 변환하는 이득 [1/s]
 };
 
 // =========================================================
