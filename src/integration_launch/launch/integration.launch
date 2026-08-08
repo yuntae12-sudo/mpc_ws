@@ -1,4 +1,0 @@
-<launch>
-  <include file="$(find planner)/launch/planner_node.launch" />
-  <include file="$(find mpc_node)/launch/mpc_node.launch" />
-</launch>

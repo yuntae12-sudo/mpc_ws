@@ -1,6 +1,6 @@
 network:
   host_ip: "127.0.0.1"       # 이 프로세스가 bind할 IP (수신용)
-  user_ip: "127.0.0.1"       # MORAI SIM으로 송신할 목적지 IP
+  user_ip: "172.29.96.1"       # MORAI SIM으로 송신할 목적지 IP
 
   ctrl_cmd_host_port: 9093
   ctrl_cmd_dst_port: 9094

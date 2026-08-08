@@ -1,17 +1,4 @@
-// 임시 진단용 브릿지 (package.xml 설명 참고).
-//
-// MORAI SIM이 이 차량을 ROS 모드로 설정하면 Ego/Object 등 전체가 ROS로만
-// 나가고 UDP로는 하나도 안 나간다(실측 확인됨 - ROS로 바꾸니 UDP Ego status도
-// 끊김). UDP와 ROS를 동시에 켤 수 없는 구조라서, ROS 모드로 둔 채 Ego/Object
-// 둘 다 릴레이해서 mpc_node 입장에선 여전히 순수 UDP만 보고 있는 것처럼
-// 만든다 (하드코딩이 아니라 실제 MORAI 데이터를 그대로 중계하는 것).
-//
-// /Object_topic (morai_msgs/ObjectStatusList) -> ObjectInfoReceiver가 기대하는
-// MORAI UDP ObjectInfo 포맷으로 127.0.0.1:7505에 재전송.
-// /Ego_topic (morai_msgs/EgoVehicleStatus) -> EgoInfoReceiver가 기대하는
-// MORAI UDP EgoVehicleStatus 포맷으로 127.0.0.1:911에 재전송.
-// 오프셋/헤더/필드 순서는 각각 object_info_receiver.cpp / ego_info_receiver.cpp와
-// 반드시 동일해야 한다 (그쪽이 파싱 스펙의 기준).
+// 임시 진단용 브릿지
 
 #include <algorithm>
 #include <arpa/inet.h>
@@ -37,12 +24,10 @@ constexpr size_t kHeaderSize = 14;
 constexpr const char* kHeader = "#MoraiObjInfo$";
 // header(14) + data_length(4) + aux_data(12) + timestamp sync(4) + nanosec(4) = 38
 constexpr size_t kDataOffset = 38;
-constexpr size_t kSlotSize = 68;  // object_info_receiver.cpp와 동일해야 함
+constexpr size_t kSlotSize = 106;  // object_info_receiver.cpp와 동일해야 함
 constexpr size_t kMaxSlots = 20;
 constexpr size_t kTailSize = 2;
 
-// ego_info_receiver.cpp 기준: header(11) + data_length(4) + aux_data(12) = 27
-// payload 시작, 최소 패킷 크기 229.
 constexpr size_t kEgoPayloadOffset = 27;
 constexpr size_t kEgoPacketSize = 229;
 
@@ -137,7 +122,21 @@ public:
 
         const size_t n = std::min(objects.size(), kMaxSlots);
 
-        std::vector<uint8_t> buf(kDataOffset + kMaxSlots * kSlotSize + kTailSize, 0);
+        // 항상 kMaxSlots(20)개를 꽉 채워서 보내면 106-stride 기준 2160바이트가
+        // 되는데, 이 WSL2(mirrored networking mode)의 127.0.0.1 트래픽은 일반
+        // lo(MTU 65536)가 아니라 loopback0(MTU 1500)을 타는 걸로 확인됐다
+        // (`ip route get 127.0.0.1`). 2160바이트는 IP 단편화가 필요한데
+        // mirrored loopback0에서 단편화된 UDP가 조용히 드롭되는 문제가 실측
+        // 확인됨. object_info_receiver.cpp는 obj_id==0을 종료 sentinel로 보고
+        // 실제 객체 수만큼만 와도 정상 동작하므로, 굳이 20슬롯을 다 채우지 않고
+        // 실제 객체 수(n)만큼만 담아 보낸다 - 대부분 시나리오(장애물 십여 개
+        // 이하)에서 1500바이트 미만으로 줄어들어 단편화 자체를 피한다.
+        // object_info_receiver.cpp의 kMinPacketSize(=kDataOffset+kSlotSize)를
+        // 만족 못 하면 패킷 자체가 무시되어 객체 리스트가 갱신 안 된다(0개로
+        // 안 비워짐) - n==0이어도 슬롯 1개 분량은 항상 확보해 obj_id==0
+        // sentinel이 제대로 전달되게 한다.
+        const size_t slots_to_send = std::max<size_t>(n, 1);
+        std::vector<uint8_t> buf(kDataOffset + slots_to_send * kSlotSize + kTailSize, 0);
         std::memcpy(buf.data(), kHeader, kHeaderSize);
 
         for (size_t i = 0; i < n; ++i) {

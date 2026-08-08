@@ -2,15 +2,23 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 #include "global/utils.hpp"
 
 namespace {
 
+constexpr size_t kHeaderSize = 14;
+constexpr const char* kExpectedHeader = "#MoraiObjInfo$";
 constexpr size_t kDataOffset = 38;
-constexpr size_t kSlotSize = 68;  // obj_id(2)+objType(2)+pose_xyz(12)+heading(4)+size_xyz(12)
-                                  // +overhang(4)+wheelbase(4)+rearoverhang(4)+vel_xyz(12)+accel_xyz(12)
+// 공식 ObjectInfo 정의(NetworkModule) 기준 슬롯 stride는 106바이트
+// (obj_id~accel_z 68바이트 + link_id[38] 38바이트). 이전에 68로 잘못 잡아서
+// 두 번째 객체부터 오프셋이 밀리는 버그가 있었음 - link_id는 안 쓰지만
+// stride 계산에는 반드시 포함해야 한다.
+constexpr size_t kSlotSize = 106;  // obj_id(2)+objType(2)+pose_xyz(12)+heading(4)+size_xyz(12)
+                                   // +overhang(4)+wheelbase(4)+rearoverhang(4)+vel_xyz(12)+accel_xyz(12)
+                                   // +link_id(38, 미사용)
 constexpr size_t kMaxSlots = 20;
 constexpr size_t kMinPacketSize = kDataOffset + kSlotSize;  // 최소 슬롯 1개는 읽을 수 있어야 함
 constexpr double kKmhToMps = 1.0 / 3.6;  // Velocity_XYZ 단위가 km/h (문서 확인)
@@ -27,6 +35,22 @@ T read_at(const uint8_t* raw_data, size_t offset) {
 ObjectInfoReceiver::ObjectInfoReceiver(const std::string& ip, int port) : Receiver(ip, port) {}
 
 void ObjectInfoReceiver::parse_data(const uint8_t* raw_data, size_t size) {
+    // TEMP DEBUG: 네이티브 MORAI UDP 재검증용 - 브릿지가 아니라 진짜 MORAI가 보낸
+    // 패킷인지(2160바이트 근처, 헤더 일치) 확인.
+    {
+        static int count = 0;
+        if (count < 5) {
+            ++count;
+            const bool header_ok = size >= kHeaderSize &&
+                std::memcmp(raw_data, kExpectedHeader, kHeaderSize) == 0;
+            std::printf("[ObjectInfo raw] size=%zu header_ok=%d first16=", size, header_ok);
+            for (size_t i = 0; i < std::min<size_t>(16, size); ++i) {
+                std::printf("%02x ", raw_data[i]);
+            }
+            std::printf("\n");
+        }
+    }
+
     if (size < kMinPacketSize) return;
 
     const size_t max_slots = std::min(kMaxSlots, (size - kDataOffset) / kSlotSize);
@@ -58,6 +82,21 @@ void ObjectInfoReceiver::parse_data(const uint8_t* raw_data, size_t size) {
         obj.width = size_y;
         obj.length = size_x;
         objects.push_back(obj);
+    }
+
+    // TEMP DEBUG: 20Hz 기준 약 1Hz로 파싱된 객체 리스트 출력 - 106-stride로
+    // 두 번째 객체 이후도 값이 정상인지 확인.
+    {
+        static int tick = 0;
+        if (++tick % 20 == 0) {
+            std::printf("[ObjectInfo parsed] count=%zu\n", objects.size());
+            for (const auto& obj : objects) {
+                std::printf("  id=%d type=%d pos=(%.3f, %.3f) heading_deg=%.2f "
+                            "speed=%.2f m/s size(w=%.2f, l=%.2f)\n",
+                            obj.id, obj.type, obj.x, obj.y, rad2deg(obj.heading),
+                            obj.speed, obj.width, obj.length);
+            }
+        }
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
