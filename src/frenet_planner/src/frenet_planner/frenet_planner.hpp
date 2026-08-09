@@ -97,6 +97,8 @@ private:
         int following_id = -1;
         double following_time = -1.0;
         size_t crossing_vehicle_count = 0;
+        CartesianPath locked_path;
+        double locked_elapsed = 0.0;
     };
 
     struct ObjectTrack {

@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <memory>
 #include <stdexcept>
@@ -15,6 +16,10 @@ constexpr const char* kFrenetParamsPath = FRENET_PACKAGE_SRC_DIR "/frenet_planne
 constexpr const char* kNetworkConfigPath = FRENET_PACKAGE_SRC_DIR "/udp_network/network.yaml";
 
 constexpr double kLoopFreqHz = 20.0;  // mpc_node와 동일 주기
+
+double NormalizeAngle(double angle) {
+    return std::atan2(std::sin(angle), std::cos(angle));
+}
 
 // Plan() 실패가 오래 지속될 때 mpc_node로 보내는 "정지" 경로. 한 점(count=1,
 // v=0)만 있으면 mpc_controller의 ToReferencePath가 그 점으로 horizon 전체를
@@ -68,6 +73,8 @@ int main() {
     int plan_fail_streak = 0;
     CartesianPath last_cp;
     bool has_last_cp = false;
+    VehicleState last_vehicle_state;
+    bool has_last_vehicle_state = false;
 
     std::printf("[FrenetPlanner] Control loop @ %.1f Hz\n", kLoopFreqHz);
     std::printf("========================================\n");
@@ -76,12 +83,52 @@ int main() {
         const auto t0 = std::chrono::steady_clock::now();
 
         if (!udp.has_vehicle_state()) {
-            std::printf("[FrenetPlanner] Waiting for ego_vehicle status...\n");
+            static int localization_wait_tick = 0;
+            if (++localization_wait_tick % 20 == 0) {
+                std::printf("[FrenetPlanner] Waiting for %s vehicle state...\n",
+                            udp.using_gps_imu() ? "fresh GPS/IMU" : "ego UDP");
+            }
+            // 선택 localization이 주행 중 timeout되어도 MPC가 마지막 주행경로를
+            // 계속 추종하지 않도록 마지막 유효 pose에서 v=0 정지경로를 갱신한다.
+            if (has_last_vehicle_state) {
+                CartesianState stale_ego;
+                stale_ego.x = last_vehicle_state.x;
+                stale_ego.y = last_vehicle_state.y;
+                stale_ego.yaw = last_vehicle_state.yaw;
+                const CartesianPath stop = MakeStopPath(stale_ego);
+                udp.send_planned_path(stop, frenet_planner.sample_dt(),
+                                      frenet_planner.last_d(), 0.0,
+                                      last_vehicle_state);
+            }
             std::this_thread::sleep_until(t0 + period);
             continue;
         }
 
         const VehicleState vs = udp.get_vehicle_state();
+        last_vehicle_state = vs;
+        has_last_vehicle_state = true;
+
+        // GPS/IMU 전환 전 shadow-mode 비교: Planner/MPC에는 계속 MORAI
+        // EgoVehicleStatus(vs)를 사용하고, 센서 기반 pose는 1Hz로 오차만 출력한다.
+        // 이 단계에서 좌표 원점/yaw 축/속도 단위를 검증한 뒤 입력을 전환한다.
+        static int localization_log_tick = 0;
+        if (++localization_log_tick % 20 == 0) {
+            if (udp.has_gps_imu_pose() && udp.has_ego_vehicle_state()) {
+                const VehicleState sensor = udp.get_gps_imu_pose();
+                const VehicleState truth = udp.get_ego_vehicle_state();
+                const double dx = sensor.x - truth.x;
+                const double dy = sensor.y - truth.y;
+                const double dyaw = NormalizeAngle(sensor.yaw - truth.yaw);
+                std::printf("[LOCALIZATION-CHECK] ego=(%.3f,%.3f yaw=%.4f v=%.3f) "
+                            "gps_imu=(%.3f,%.3f yaw=%.4f v=%.3f) "
+                            "error=(dx=%.3f dy=%.3f pos=%.3f dyaw=%.4f dv=%.3f)\n",
+                            truth.x, truth.y, truth.yaw, truth.v,
+                            sensor.x, sensor.y, sensor.yaw, sensor.v,
+                            dx, dy, std::hypot(dx, dy), dyaw, sensor.v - truth.v);
+            } else {
+                std::printf("[LOCALIZATION-CHECK] waiting for valid GPS position and IMU data\n");
+            }
+        }
 
         // TODO: ego_cs.kappa를 vs.steer 기반으로 추정하려 했으나(mpc_controller
         // 쪽 동일 TODO 참고), steer 단위/부호가 실측 검증 전이라 CartesianToFrenet의

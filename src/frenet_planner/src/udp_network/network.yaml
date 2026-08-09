@@ -8,6 +8,25 @@ network:
   ego_vehicle_dst_port: 911
   object_info_dst_port: 7505
 
+  # GPS/IMU 검증용 - MORAI의 센서 네트워크 설정(Sensor UDP)에서 이 두 포트로
+  # 보내도록 맞춰야 한다. 기본값 1111/2222는 임시 배정값이라 실제 MORAI
+  # 설정과 겹치지 않는지 확인 후 필요하면 바꿀 것 (gps_receiver/imu_receiver
+  # 사용 - 아직 main.cpp의 ego pose로는 연동 안 함, 검증 단계).
+  gps_dst_port: 1111
+  imu_dst_port: 2222
+
+  # MORAI GPS Info 창에 표시되는 UTM52N map offset. global path 좌표는
+  # UTM Easting/Northing에서 이 값을 뺀 로컬 좌표다.
+  gps_utm_offset:
+    east: 302595.0
+    north: 4124145.0
+
+  localization:
+    source: "gps_imu"       # ego_udp | gps_imu
+    gps_timeout: 0.5       # [s] 초과 시 GPS/IMU pose 무효
+    imu_timeout: 0.15      # [s]
+    max_prediction_time: 0.5  # [s] 마지막 GPS fix 이후 정속 예측 상한
+
   # mpc_node의 udp_network/network.yaml에 있는 planned_path_host_port와
   # 반드시 같은 값이어야 한다.
   planned_path_dst_port: 9300

@@ -39,11 +39,14 @@ add_executable(frenet_planner_node
   src/frenet_planner/math/polynomial.cpp
   src/frenet_planner/math/frenet_converter.cpp
   src/udp_network/udp_manager.cpp
+  src/udp_network/gps_transform.cpp
   src/udp_network/sender/sender.cpp
   src/udp_network/sender/planned_path_sender.cpp
   src/udp_network/receiver/receiver.cpp
   src/udp_network/receiver/ego_info_receiver.cpp
   src/udp_network/receiver/object_info_receiver.cpp
+  src/udp_network/receiver/gps_receiver.cpp
+  src/udp_network/receiver/imu_receiver.cpp
 )
 
 target_link_libraries(frenet_planner_node
