@@ -27,7 +27,8 @@ public:
                  const std::vector<ObjectInfo>& obstacles,
                  const std::vector<FrenetPath>& candidates,
                  int selected_index,
-                 const PlannerDebugStats& stats);
+                 const PlannerDebugStats& stats,
+                 const PlannerCommand& command);
 
 private:
     PlannerVisualizationConfig config_;

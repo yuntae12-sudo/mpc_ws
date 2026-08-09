@@ -1,8 +1,8 @@
 # =========================================================
 # Frenet Frame Planner 파라미터 (mpc_controller에 통합된 버전)
 # FSM(behavior_planner) 미연동 상태: 모드 전환 조건을 frenet_planner.cpp에
-# 직접 하드코딩해서 검증 중 (LANE_KEEPING/FOLLOWING 완료, AVOID/Merge는
-# 아직). behavior_planner 연동은 각 모드 검증이 끝난 후 별도 단계에서.
+# 직접 하드코딩해서 검증 중 (LANE_KEEPING/FOLLOWING/AVOID 완료, MERGE는
+# 검증 중). behavior_planner 연동은 각 모드 검증이 끝난 후 별도 단계에서.
 # =========================================================
 
 planner:
@@ -36,11 +36,28 @@ planner:
     detection_distance: 60.0  # [m] 최소 등록거리(충돌 lookahead가 더 길면 자동 확장)
     shift_start_distance: 25.0 # [m] 이 거리부터 횡이동 시작
     trigger_max_speed: 0.5    # [m/s] 이 속도 이하만 "정지 장애물"로 간주(그 이상은 Following)
-    avoid_offset: 3.0         # [m] 회피 시 lateral_d1 격자를 밀어낼 크기
+    avoid_offset: 5.0         # [m] 회피 시 lateral_d1 격자를 밀어낼 크기
     comfortable_decel: 3.0    # [m/s^2] 추후 동적 시작거리 계산용(현재 미사용)
     lateral_tolerance: 0.4    # [m] SHIFT 횟이동 완료 판정
     pass_clearance: 1.0       # [m] 자차/장애물 길이 외 추가 통과 여유
     prefer_right_when_equal: true # 좌/우 valid 품질이 거의 같으면 우측 우선
+
+  # --- 회전교차로 MERGE: global path상의 conflict_s에서 순환 차량의
+  # 도착 시간 gap을 확인하고, gap이 없으면 진입점 전에 정지한다. ---
+  merge:
+    conflict_s: 885.76         # [m] 실측한 회전교차로 대표 합류 충돌점
+    approach_distance: 45.0    # [m] 충돌점 전 MERGE 활성 거리
+    stop_buffer: 3.5           # [m] 정지 목표 s=882.26 (자차 반길이+안전마진+추가 여유)
+    conflict_radius: 6.0       # [m] 순환차 곡선예측의 충돌점 최근접 허용거리
+    min_object_speed: 0.5      # [m/s] 이보다 느린 객체는 순환 차량에서 제외
+    min_front_time_gap: 1.5    # [s] 선행 순환차 통과 후 최소 여유
+    min_rear_time_gap: 2.0     # [s] Ego 진입 후 후속 순환차까지 최소 여유
+    ego_clear_time: 1.5        # [s] Ego의 conflict zone 통과 시간
+    max_wait_time: 10.0        # [s] 진입 gap 탐색 시간범위
+    completion_distance: 8.0   # [m] 충돌점 통과 후 MERGE 종료 거리
+    commit_distance: 15.0      # [m] 이 거리부터 선택한 gap을 고정
+    safe_confirm_cycles: 3     # 연속 안전 판정 횟수(20Hz)
+    cross_speed_floor: 3.0     # [m/s] COMMIT/CROSS 중 교차구역 이탈 최저 목표속도
 
   # --- 실시간 후보 경로 디버그 시각화 -----------------------
   # Planner가 최신 스냅샷을 원자적으로 갱신하고 tools/planner_visualizer.py가 읽는다.

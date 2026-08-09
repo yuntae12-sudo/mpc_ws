@@ -59,6 +59,25 @@ struct AvoidConfig {
     bool prefer_right_when_equal = true; // 좌/우 후보 품질이 같을 때 우측 우선
 };
 
+// =========================================================
+// 회전교차로 진입 conflict point와 time-gap 판단 파라미터.
+// =========================================================
+struct MergeConfig {
+    double conflict_s = -1.0;           // [m] global path상의 회전교차로 진입 충돌점; <0이면 비활성
+    double approach_distance = 45.0;    // [m] conflict point 전 MERGE 활성 구간
+    double stop_buffer = 3.0;           // [m] gap이 없을 때 conflict point 전 정지 여유
+    double conflict_radius = 6.0;       // [m] 순환 차량 궤적이 충돌점을 지난다고 볼 최근접거리
+    double min_object_speed = 0.5;      // [m/s] 시간 예측에 사용할 최소 순환차 속도
+    double min_front_time_gap = 1.5;    // [s] 먼저 지나간 차량 뒤 진입 여유
+    double min_rear_time_gap = 2.0;     // [s] 진입 후 다음 차량 도착 여유
+    double ego_clear_time = 1.5;        // [s] Ego가 conflict zone을 비우는 시간
+    double max_wait_time = 10.0;        // [s] 탐색할 최대 진입 대기시간
+    double completion_distance = 8.0;   // [m] conflict point 통과 후 MERGE 종료 거리
+    double commit_distance = 15.0;      // [m] 이 거리 안에서 선택한 gap을 고정
+    int safe_confirm_cycles = 3;        // 순간 오검출로 진입하지 않도록 연속 안전 확인
+    double cross_speed_floor = 3.0;     // [m/s] COMMIT/CROSS 중 교차구역 이탈 최저 목표속도
+};
+
 // waypoint 파일("x y" 또는 "x,y") -> RefLine
 bool LoadReferenceLine(const std::string& path, RefLine& out_ref, double max_curvature);
 
@@ -72,6 +91,7 @@ void LoadParams(const std::string& yaml_path,
                 CurveSpeedConfig& curve_speed_cfg,
                 FollowingConfig& following_cfg,
                 AvoidConfig& avoid_cfg,
+                MergeConfig& merge_cfg,
                 PlannerVisualizationConfig& visualization_cfg,
                 double& wheelbase,
                 double& lane_width,

@@ -107,7 +107,19 @@ int main() {
             send_cp = &cp;
         } else {
             ++plan_fail_streak;
-            if (has_last_cp && plan_fail_streak <= kMaxTransientFailCycles) {
+            const bool collision_blocked =
+                frenet_planner.last_failure_reason() ==
+                    FrenetPlanner::PlanFailureReason::COLLISION_BLOCKED;
+            if (collision_blocked) {
+                // 새 후보가 전부 충돌로 제거됐는데 과거 주행 경로를 재사용하면
+                // 이미 위험해진 경로를 그대로 따라가게 된다. streak 유예 없이
+                // 현재 pose 기준 정지 경로로 즉시 교체한다.
+                std::printf("[FrenetPlanner] collision blocked: discarding last path, "
+                            "sending stop path immediately\n");
+                last_cp = MakeStopPath(ego_cs);
+                has_last_cp = true;
+                send_cp = &last_cp;
+            } else if (has_last_cp && plan_fail_streak <= kMaxTransientFailCycles) {
                 std::printf("[FrenetPlanner] no valid path (transient %d/%d, "
                             "resending last valid path)\n",
                             plan_fail_streak, kMaxTransientFailCycles);

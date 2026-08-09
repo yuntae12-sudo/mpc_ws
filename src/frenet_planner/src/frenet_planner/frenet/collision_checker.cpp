@@ -13,10 +13,19 @@ OrientedBox MakeEgoBox(const CartesianState& cs, const VehicleShape& shape, doub
 
 OrientedBox MakeObstacleBox(const ObjectInfo& obj, double t, double margin) {
     OrientedBox box;
-    // 등속 직선 예측 (heading 방향으로 speed만큼 이동, 가속도 정보 없음)
-    box.cx = obj.x + obj.speed * std::cos(obj.heading) * t;
-    box.cy = obj.y + obj.speed * std::sin(obj.heading) * t;
-    box.heading = obj.heading;
+    // Gap selector와 동일한 constant-turn-rate 예측을 사용한다. 두 안전 계층이
+    // 같은 차량을 곡선/직선으로 다르게 예측해 safe와 collision을 동시에 내던
+    // 모순을 제거한다.
+    if (std::fabs(obj.yaw_rate) > 1e-3) {
+        box.cx = obj.x + obj.speed / obj.yaw_rate *
+            (std::sin(obj.heading + obj.yaw_rate * t) - std::sin(obj.heading));
+        box.cy = obj.y - obj.speed / obj.yaw_rate *
+            (std::cos(obj.heading + obj.yaw_rate * t) - std::cos(obj.heading));
+    } else {
+        box.cx = obj.x + obj.speed * std::cos(obj.heading) * t;
+        box.cy = obj.y + obj.speed * std::sin(obj.heading) * t;
+    }
+    box.heading = obj.heading + obj.yaw_rate * t;
     box.half_length = obj.length / 2.0 + margin;
     box.half_width  = obj.width  / 2.0 + margin;
     return box;

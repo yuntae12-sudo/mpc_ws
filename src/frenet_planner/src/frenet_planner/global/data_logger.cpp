@@ -84,6 +84,7 @@ void LoadParams(const std::string& yaml_path,
                  CurveSpeedConfig& curve_speed_cfg,
                  FollowingConfig& following_cfg,
                  AvoidConfig& avoid_cfg,
+                 MergeConfig& merge_cfg,
                  PlannerVisualizationConfig& visualization_cfg,
                  double& wheelbase,
                  double& lane_width,
@@ -157,6 +158,20 @@ void LoadParams(const std::string& yaml_path,
     loadInto(root, "planner/avoid/lateral_tolerance", avoid_cfg.lateral_tolerance);
     loadInto(root, "planner/avoid/pass_clearance",    avoid_cfg.pass_clearance);
     loadInto(root, "planner/avoid/prefer_right_when_equal", avoid_cfg.prefer_right_when_equal);
+
+    loadInto(root, "planner/merge/conflict_s",             merge_cfg.conflict_s);
+    loadInto(root, "planner/merge/approach_distance",      merge_cfg.approach_distance);
+    loadInto(root, "planner/merge/stop_buffer",            merge_cfg.stop_buffer);
+    loadInto(root, "planner/merge/conflict_radius",        merge_cfg.conflict_radius);
+    loadInto(root, "planner/merge/min_object_speed",       merge_cfg.min_object_speed);
+    loadInto(root, "planner/merge/min_front_time_gap",     merge_cfg.min_front_time_gap);
+    loadInto(root, "planner/merge/min_rear_time_gap",      merge_cfg.min_rear_time_gap);
+    loadInto(root, "planner/merge/ego_clear_time",         merge_cfg.ego_clear_time);
+    loadInto(root, "planner/merge/max_wait_time",          merge_cfg.max_wait_time);
+    loadInto(root, "planner/merge/completion_distance",    merge_cfg.completion_distance);
+    loadInto(root, "planner/merge/commit_distance",        merge_cfg.commit_distance);
+    loadInto(root, "planner/merge/safe_confirm_cycles",    merge_cfg.safe_confirm_cycles);
+    loadInto(root, "planner/merge/cross_speed_floor",      merge_cfg.cross_speed_floor);
 
     loadInto(root, "planner/visualization/enabled",       visualization_cfg.enabled);
     loadInto(root, "planner/visualization/publish_hz",    visualization_cfg.publish_hz);

@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <unordered_map>
 
 #include "frenet_planner/frenet/ref_line.hpp"
 #include "frenet_planner/frenet/path_generator.hpp"
@@ -10,6 +11,7 @@
 #include "frenet_planner/frenet/avoidance_selector.hpp"
 #include "frenet_planner/frenet/collision_checker.hpp"
 #include "frenet_planner/frenet/leader_selector.hpp"
+#include "frenet_planner/frenet/merge_selector.hpp"
 #include "frenet_planner/global/data_logger.hpp"
 #include "frenet_planner/global/global.hpp"
 #include "frenet_planner/math/frenet_converter.hpp"
@@ -18,11 +20,19 @@
 // Frenet Frame Path Planner: 전역 경로(RefLine)를 기준으로 한 Local Planner.
 // FSM(behavior_planner)이 아직 연동되지 않아서, 모드 전환 조건을 지금은
 // Plan() 안에 직접 하드코딩해뒀다(내 차선을 막는 정지/저속 장애물이 있으면
-// AVOID, 그 다음 선두 차량이 있으면 FOLLOWING, 둘 다 없으면 LANE_KEEPING -
-// Merge도 검증될 때까지 같은 방식으로 추가될 예정). behavior_planner 연동
-// 시 이 조건문들을 걷어내고 FSM이 준 mode를 그대로 쓰도록 교체한다.
+// AVOID, 그 다음 대상 차선에 sa/sb(앞/뒤 차량)가 모두 있으면 MERGE, 그
+// 다음 선두 차량이 있으면 FOLLOWING, 다 없으면 LANE_KEEPING). MERGE는
+// 설정된 회전교차로 conflict_s 접근구간에서 시간 gap을 판단한다. behavior_planner
+// 연동 시 이 조건문들을 걷어내고 FSM이 준 mode를 그대로 쓰도록 교체한다.
 class FrenetPlanner {
 public:
+    enum class PlanFailureReason {
+        NONE,
+        COLLISION_BLOCKED,
+        TRANSIENT_GENERATION_FAILURE,
+        NOT_INITIALIZED,
+    };
+
     // yaml_path: frenet_planner/config/params.yaml
     bool Init(const std::string& yaml_path);
 
@@ -43,6 +53,7 @@ public:
     // 같이 찍어본다.
     double last_d() const { return last_d_; }
     double last_d_dot() const { return last_d_dot_; }
+    PlanFailureReason last_failure_reason() const { return last_failure_reason_; }
 
 private:
     // TRACKING은 외부 AVOID 모드가 아니다. 정적 장애물 ID/방향만
@@ -70,6 +81,30 @@ private:
         int missing_cycles = 0;
     };
 
+    enum class MergePhase { APPROACH, WAIT, COMMIT, CROSS, CLEAR };
+
+    struct MergeContext {
+        bool active = false;
+        MergePhase phase = MergePhase::APPROACH;
+        bool gap_safe = false;
+        bool gap_locked = false;
+        bool commit_pending = false;  // 실제 후보 검증 전의 임시 COMMIT 요청
+        int safe_cycles = 0;
+        double entry_time = 0.0;
+        double clear_time = 0.0;
+        int preceding_id = -1;
+        double preceding_time = -1.0;
+        int following_id = -1;
+        double following_time = -1.0;
+        size_t crossing_vehicle_count = 0;
+    };
+
+    struct ObjectTrack {
+        double heading = 0.0;
+        double yaw_rate = 0.0;
+        int missing_cycles = 0;
+    };
+
     // 저속(ego.v < kLowSpeedFallbackV) 전용 fallback: CartesianToFrenet/FrenetToCartesian의
     // d_prime = d_dot/s_dot 계산은 s_dot(≈속도)로 나누는 구조라 저속에서 수학적으로
     // 특이점을 가진다("고속 모드 전용" - frenet_converter.cpp 주석 참고). 그 특이점 있는
@@ -79,7 +114,13 @@ private:
     // 설계해 ComputeGeometricPath로만 렌더링한다 - 나누기가 전혀 없어 특이점이 없다.
     // 활성 AVOID가 있으면 중앙이 아니라 저장된 회피 target_d를 유지/추종한다.
     bool PlanLowSpeedFallback(const CartesianState& ego, double s, double d, double target_d,
-                              CartesianPath& out_path) const;
+                              CartesianPath& out_path, double duration_s = 2.0) const;
+
+    // 일반 저속 fallback의 크롤링 가속 프로파일 상수. 회전교차로 MERGE는
+    // 이 고정 2 m/s 프로파일을 쓰지 않고 정상 MERGE 후보 생성기로 처리한다.
+    static constexpr double kCrawlAccel = 0.5;       // [m/s^2] 완만한 가속
+    static constexpr double kMinCreepSpeed = 0.3;    // [m/s] 최소 전진속도 (0 근처에 갇히지 않도록)
+    static constexpr double kCrawlSpeedCap = 2.0;    // [m/s] 이 fallback 안에서의 속도 상한
 
     RefLine ref_;
     PathGeneratorConfig path_cfg_{};
@@ -90,6 +131,7 @@ private:
     CurveSpeedConfig curve_speed_cfg_{};
     FollowingConfig following_cfg_{};
     AvoidConfig avoid_cfg_{};
+    MergeConfig merge_cfg_{};
     PlannerVisualizationConfig visualization_cfg_{};
     std::unique_ptr<PlannerDebugWriter> debug_writer_;
     double wheelbase_ = 3.0;
@@ -102,9 +144,13 @@ private:
     bool has_last_s_ = false;
     double last_d_ = 0.0;
     double last_d_dot_ = 0.0;
+    PlanFailureReason last_failure_reason_ = PlanFailureReason::NONE;
 
     // 모드 전환(LANE_KEEPING/FOLLOWING/AVOID) 시점만 로그로 찍기 위한 이전 사이클 값.
     BehaviorState prev_mode_ = LANE_KEEPING;
+    MergePhase prev_merge_phase_ = MergePhase::CLEAR;
     AvoidanceContext avoidance_{};
     FollowingContext following_{};
+    MergeContext merge_{};
+    std::unordered_map<int, ObjectTrack> object_tracks_{};
 };

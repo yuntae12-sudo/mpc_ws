@@ -68,7 +68,7 @@ void ObjectInfoReceiver::parse_data(const uint8_t* raw_data, size_t size) {
         const float pose_y = read_at<float>(raw_data, base + 8);
         const float heading_deg = read_at<float>(raw_data, base + 16);
         const float size_x = read_at<float>(raw_data, base + 20);  // TODO: 차량 전후(length) 추정
-        const float size_y = read_at<float>(raw_data, base + 24);  // TODO: 차량 좌우(width) 추정
+        const float width = read_at<float>(raw_data, base + 24);
         const float vel_x = read_at<float>(raw_data, base + 44);
         const float vel_y = read_at<float>(raw_data, base + 48);
 
@@ -79,8 +79,9 @@ void ObjectInfoReceiver::parse_data(const uint8_t* raw_data, size_t size) {
         obj.y = pose_y;
         obj.heading = deg2rad(heading_deg);  // 문서 확인: heading 단위 deg
         obj.speed = std::hypot(vel_x, vel_y) * kKmhToMps;  // 문서 확인: Velocity_XYZ 단위 km/h
-        obj.width = size_y;
+        obj.width = width;
         obj.length = size_x;
+        obj.yaw_rate = 0.0;  // 수신 패킷에는 yaw-rate가 없어 planner에서 추정
         objects.push_back(obj);
     }
 

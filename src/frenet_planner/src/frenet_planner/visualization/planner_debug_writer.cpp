@@ -21,6 +21,7 @@ const char* ModeName(BehaviorState mode) {
         case TURN_LEFT: return "TURN_LEFT";
         case TURN_RIGHT: return "TURN_RIGHT";
         case AVOID: return "AVOID";
+        case MERGE: return "MERGE";
         case STOP: return "STOP";
         case EMERGENCY: return "EMERGENCY";
     }
@@ -69,7 +70,8 @@ void PlannerDebugWriter::Publish(const RefLine& ref,
                                  const std::vector<ObjectInfo>& obstacles,
                                  const std::vector<FrenetPath>& candidates,
                                  int selected_index,
-                                 const PlannerDebugStats& stats) {
+                                 const PlannerDebugStats& stats,
+                                 const PlannerCommand& command) {
     if (!config_.enabled || config_.publish_hz <= 0.0) return;
 
     const auto now = std::chrono::steady_clock::now();
@@ -89,6 +91,30 @@ void PlannerDebugWriter::Publish(const RefLine& ref,
     out << ",\"v\":"; WriteNumber(out, ego.v);
     out << ",\"s\":"; WriteNumber(out, start.s);
     out << ",\"d\":"; WriteNumber(out, start.d);
+    out << '}';
+
+    out << ",\"merge\":{";
+    out << "\"active\":" << (mode == MERGE ? "true" : "false");
+    out << ",\"target_lane\":0";
+    out << ",\"target_d\":";
+    WriteNumber(out, mode == MERGE ? command.merge_target_d : 0.0);
+    out << ",\"sa_id\":" << (mode == MERGE ? command.merge_sa_id : -1);
+    out << ",\"gap_safe\":" << (mode == MERGE && command.merge_gap_safe ? "true" : "false");
+    out << ",\"conflict_s\":"; WriteNumber(out, mode == MERGE ? command.merge_conflict_s : 0.0);
+    out << ",\"entry_time\":"; WriteNumber(out, mode == MERGE ? command.merge_entry_time : 0.0);
+    out << ",\"sb_id\":" << (mode == MERGE ? command.merge_sb_id : -1);
+    out << ",\"mid_s\":"; WriteNumber(out, mode == MERGE ? command.merge_conflict_s : 0.0);
+    double merge_target_x = 0.0, merge_target_y = 0.0;
+    if (mode == MERGE) {
+        const double mid_s = command.merge_conflict_s;
+        const RefPoint rp = Interpolate(ref, mid_s);
+        const CartesianState target = FrenetToCartesian(
+            rp, mid_s, 1.0, 0.0, command.merge_target_d, 0.0, 0.0);
+        merge_target_x = target.x;
+        merge_target_y = target.y;
+    }
+    out << ",\"target_x\":"; WriteNumber(out, merge_target_x);
+    out << ",\"target_y\":"; WriteNumber(out, merge_target_y);
     out << '}';
 
     out << ",\"stats\":{";

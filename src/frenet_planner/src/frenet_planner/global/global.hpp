@@ -18,6 +18,7 @@ enum BehaviorState {
     TURN_LEFT,
     TURN_RIGHT,
     AVOID,
+    MERGE,
     STOP,
     EMERGENCY
 };
@@ -32,6 +33,7 @@ struct ObjectInfo {
     double speed;
     double width;
     double length;
+    double yaw_rate = 0.0;  // [rad/s] planner가 연속 heading 관측으로 추정
 };
 
 struct PlannerCommand {
@@ -39,7 +41,7 @@ struct PlannerCommand {
     BehaviorState mode;
 
     // 2. 횡방향 목표
-    int target_lane;                   // -1: 좌, 0: 유지, 1: 우
+    int target_lane;                   // Frenet d 기준: -1 우, 0 유지, 1 좌
     double avoidance_d_offset;         // AVOID 모드 전용 연속값 [m]
 
     // 3. 종방향 목표
@@ -54,6 +56,23 @@ struct PlannerCommand {
     double time_gap;                   // taw
     double min_gap;                    // D0 [m]
     double gap_gain;                   // 간격 오차를 접근 속도로 변환하는 이득 [1/s]
+
+    // 5. MERGE 전용(Sec.V-A) - 대상 차선의 두 차량 sa(앞)/sb(뒤) 등가속 예측
+    double merge_sa_s;
+    int merge_sa_id;
+    double merge_sa_speed;
+    double merge_sa_accel;
+    double merge_sb_s;
+    int merge_sb_id;
+    double merge_sb_speed;
+    double merge_sb_accel;
+    double merge_target_d;
+    bool merge_gap_safe;
+    double merge_conflict_s;
+    double merge_stop_s;
+    double merge_entry_time;
+    bool merge_committed;
+    bool merge_crossing;
 };
 
 // =========================================================

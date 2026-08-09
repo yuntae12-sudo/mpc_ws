@@ -123,6 +123,13 @@ std::vector<FrenetPath> GenerateMergingCandidates(const FrenetState& start,
                                                    double sb, double sb_speed, double sb_accel,
                                                    const PathGeneratorConfig& cfg);
 
+// 회전교차로 conflict point를 지정 시간에 통과하도록 위치/속도를 함께 고정한다.
+std::vector<FrenetPath> GenerateMergeArrivalCandidates(const FrenetState& start,
+                                                        double conflict_s,
+                                                        double entry_time,
+                                                        double entry_speed,
+                                                        const PathGeneratorConfig& cfg);
+
 // =========================================================
 // [Sec.V-B] Velocity Keeping — 목표 속도 유지 (quartic, 종료 위치 자유)
 //

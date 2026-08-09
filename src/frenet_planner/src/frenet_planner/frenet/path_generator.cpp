@@ -271,6 +271,39 @@ std::vector<FrenetPath> GenerateMergingCandidates(const FrenetState& start,
     return result;
 }
 
+std::vector<FrenetPath> GenerateMergeArrivalCandidates(const FrenetState& start,
+                                                        double conflict_s,
+                                                        double entry_time,
+                                                        double entry_speed,
+                                                        const PathGeneratorConfig& cfg) {
+    std::vector<FrenetPath> result;
+    // lateral 후보와 정확히 같은 T 격자를 써야 Combine 단계에서 결합된다.
+    // 선택 entry_time 주변의 격자만 남겨 시간 목표를 유지한다.
+    for (double T = cfg.time_horizon.min;
+         T <= cfg.time_horizon.max + 1e-9; T += cfg.time_horizon.step) {
+        if (T <= 1e-6) continue;
+        if (std::fabs(T - entry_time) > std::max(0.6, cfg.time_horizon.step)) continue;
+        const std::vector<double> times = SampleTimes(T, cfg.dt);
+        // 위치 종단조건을 느슨한 평균속도로 대체하지 않고 conflict_s에 직접 고정한다.
+        QuinticPolynomial poly = MakeQuintic(start.s, start.s_d, start.s_dd,
+                                              conflict_s, entry_speed, 0.0, T);
+        result.push_back(SampleLongitudinalQuintic(poly, times));
+    }
+    // entry_time이 격자 밖인 예외에는 가장 가까운 horizon 하나를 사용한다.
+    if (result.empty()) {
+        const double grid_index = std::round(
+            (entry_time - cfg.time_horizon.min) / cfg.time_horizon.step);
+        const double T = std::max(cfg.time_horizon.min,
+            std::min(cfg.time_horizon.min + grid_index * cfg.time_horizon.step,
+                     cfg.time_horizon.max));
+        const std::vector<double> times = SampleTimes(T, cfg.dt);
+        QuinticPolynomial poly = MakeQuintic(start.s, start.s_d, start.s_dd,
+                                              conflict_s, entry_speed, 0.0, T);
+        result.push_back(SampleLongitudinalQuintic(poly, times));
+    }
+    return result;
+}
+
 // =========================================================
 // [Sec.V-B] Velocity Keeping
 // =========================================================
@@ -404,7 +437,7 @@ void FilterByCurvature(std::vector<FrenetPath>& combined,
 
 // AVOID 모드는 PlannerCommand.avoidance_d_offset을 그대로 lateral 목표 중심으로 사용.
 // LANE_CHANGE_*는 d 양의 방향이 좌측(FrenetToCartesian의 n_r 정의와 동일)이므로
-// LEFT는 +lane_width, RIGHT는 -lane_width.
+// LEFT는 +lane_width, RIGHT는 -lane_width. 회전교차로 MERGE는 global path 유지.
 double ResolveLateralOffset(const PlannerCommand& cmd, double lane_width) {
     switch (cmd.mode) {
         case AVOID:
@@ -415,6 +448,9 @@ double ResolveLateralOffset(const PlannerCommand& cmd, double lane_width) {
 
         case LANE_CHANGE_RIGHT:
             return -lane_width;
+
+        case MERGE:
+            return 0.0;  // 회전교차로 진입 global path 자체를 횡방향으로 추종
 
         default:
             return 0.0;  // 차선 중앙 유지
@@ -435,9 +471,18 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
     // LANE_KEEPING에서도 먼 장애물을 보고 옆 후보가 선택된다. 모드가
     // 지정한 목표 d 주변의 작은 범위만 생성해 역할을 분리한다.
     PathGeneratorConfig lateral_cfg = cfg;
-    const double d_offset = ResolveLateralOffset(cmd, lane_width);
-    lateral_cfg.lateral_d1.min = d_offset - cfg.lateral_target_tolerance;
-    lateral_cfg.lateral_d1.max = d_offset + cfg.lateral_target_tolerance;
+    // COMMIT/CROSS에서는 짧은 종방향 거리 안에 d=0 복귀까지 강제하지 않는다.
+    // 현재 횡위치를 유지해 합류 타이밍 궤적과 횡복귀 궤적을 분리하고, CLEAR 후
+    // LANE_KEEPING이 차선 중앙 복귀를 담당한다.
+    const double d_offset = (cmd.mode == MERGE && cmd.merge_committed)
+        ? start.d : ResolveLateralOffset(cmd, lane_width);
+    // MERGE는 차선 변경 모드가 아니라 회전교차로 global path의 종방향 진입
+    // 타이밍만 조절한다. ±0.5m 후보가 충돌 회피처럼 번갈아 선택되며 조향이
+    // 흔들리지 않도록 종단 d를 차선 중심 하나로 고정한다.
+    const double lateral_tolerance =
+        cmd.mode == MERGE ? 0.0 : cfg.lateral_target_tolerance;
+    lateral_cfg.lateral_d1.min = d_offset - lateral_tolerance;
+    lateral_cfg.lateral_d1.max = d_offset + lateral_tolerance;
 
     std::vector<FrenetPath> lateral_set = GenerateLateralCandidates(start, lateral_cfg);
     FilterLateralByAcceleration(lateral_set, limits);
@@ -469,6 +514,48 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
             longitudinal_set = GenerateStoppingCandidates(start, cmd.stop_position, cfg);
             break;
 
+        case MERGE:
+            if (cmd.merge_crossing) {
+                longitudinal_set = GenerateVelocityKeepingCandidates(
+                    start, cmd.target_speed, cfg);
+            } else if (!cmd.merge_gap_safe) {
+                const double stop_distance = std::max(0.0, cmd.merge_stop_s - start.s);
+                const double braking_distance = start.s_d * start.s_d /
+                    (2.0 * std::max(limits.max_longitudinal_accel, 0.1));
+                if (stop_distance > braking_distance + 3.0) {
+                    // 먼 거리부터 정지 quintic을 강제하면 모든 T 후보가 조기 감속한다.
+                    // 제동구간 전까지는 global-path 순항을 유지한다.
+                    longitudinal_set = GenerateVelocityKeepingCandidates(
+                        start, cmd.target_speed, cfg);
+                } else {
+                    longitudinal_set = GenerateStoppingCandidates(start, cmd.merge_stop_s, cfg);
+                }
+            } else {
+                const double distance = std::max(0.0, cmd.merge_conflict_s - start.s);
+                const double arrival_speed = cmd.merge_entry_time > 0.1
+                    ? distance / cmd.merge_entry_time : cmd.target_speed;
+                if (cmd.merge_committed &&
+                    cmd.merge_entry_time >= cfg.time_horizon.min - 1e-6) {
+                    longitudinal_set = GenerateMergeArrivalCandidates(
+                        start, cmd.merge_conflict_s, cmd.merge_entry_time,
+                        std::min(cmd.target_speed, std::max(arrival_speed, 1.0)), cfg);
+                } else if (cmd.merge_committed) {
+                    // conflict 도착까지 남은 시간이 lateral/longitudinal 공통
+                    // 최소 horizon보다 짧아지면 exact-arrival quintic을 만들 수 없다.
+                    // 기존 구현은 entry_time(예: 1.2s)을 1.5s로 강제 확장해 가까운
+                    // conflict point에 늦게 도착하도록 급감속/재가속했고, 결국
+                    // 종가속도 필터에서 유일한 후보가 사라져 zone 앞에서 정지했다.
+                    // COMMIT은 이미 전체 후보 충돌 검증을 통과했으므로 이 구간부터는
+                    // 교차구역 통과 목표속도를 유지해 시간창을 끝까지 실행한다.
+                    longitudinal_set = GenerateVelocityKeepingCandidates(
+                        start, cmd.target_speed, cfg);
+                } else {
+                    longitudinal_set = GenerateVelocityKeepingCandidates(
+                        start, std::min(cmd.target_speed, std::max(arrival_speed, 1.0)), cfg);
+                }
+            }
+            break;
+
         case LANE_KEEPING:
         case LANE_CHANGE_LEFT:
         case LANE_CHANGE_RIGHT:
@@ -481,10 +568,6 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
             longitudinal_set = GenerateVelocityKeepingCandidates(start, cmd.target_speed, cfg);
             break;
     }
-
-    // Merging(Sec.V-A)은 두 대상 차량(sa,sb) 정보가 필요한데, 현재 BehaviorState에는
-    // 대응하는 상태가 없고 PlannerCommand도 leader 하나만 표현 가능함.
-    // TODO(추후 개발 필요): FSM에 MERGE 상태 및 두 차량 정보 필드 추가 후 연동.
 
     FilterLongitudinalByAcceleration(longitudinal_set, limits);
     if (stats) {
@@ -502,6 +585,10 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
 
     // 4. 충돌 필터링(Sec.VI) - obstacles가 없으면 아무 것도 안 걸러지므로
     // 안전하게 항상 호출해도 된다(장애물 없을 때 기존 동작과 동일).
+    // TODO(검증 필요): FilterByCollision은 exempt_id 하나만 받는데, MERGE는
+    // sa/sb 둘 다와 가까운 게 정상이라 둘 다 면제가 필요할 수 있음. sa/sb
+    // 간격이 충분히 넓다면 문제없겠지만, 좁은 gap으로 MERGE 검증 시 후보가
+    // 0개로 걸러지면 이 지점부터 확인.
     if (!obstacles.empty()) {
         const int coast_exempt_id = (cmd.mode == FOLLOWING) ? cmd.leader_id : -1;
         FilterByCollision(combined, ref, obstacles, vehicle_shape, collision_cfg,

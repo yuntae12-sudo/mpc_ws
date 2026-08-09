@@ -35,6 +35,7 @@ add_executable(frenet_planner_node
   src/frenet_planner/frenet/collision_checker.cpp
   src/frenet_planner/frenet/leader_selector.cpp
   src/frenet_planner/frenet/avoidance_selector.cpp
+  src/frenet_planner/frenet/merge_selector.cpp
   src/frenet_planner/math/polynomial.cpp
   src/frenet_planner/math/frenet_converter.cpp
   src/udp_network/udp_manager.cpp

@@ -128,6 +128,10 @@ class PlannerVisualizer:
 
         self.collision_scatter = self.ax_local.scatter(
             [], [], marker="x", s=18, color="#9d0208", alpha=0.7)
+        self.merge_target_global = self.ax_global.scatter(
+            [], [], marker="*", s=130, color="#7b2cbf", edgecolor="white", zorder=8)
+        self.merge_target_local = self.ax_local.scatter(
+            [], [], marker="*", s=130, color="#7b2cbf", edgecolor="white", zorder=8)
 
         empty_vehicle = vehicle_polygon(0.0, 0.0, 0.0, 4.5, 1.9)
         self.global_ego = Polygon(empty_vehicle, closed=True, facecolor="#0077b6",
@@ -160,6 +164,7 @@ class PlannerVisualizer:
             self.global_selected, self.local_selected,
             self.local_reference,
             *self.candidate_collections.values(), self.collision_scatter,
+            self.merge_target_global, self.merge_target_local,
             self.global_ego, self.local_ego, self.info_text,
             *self.obstacle_patches[self.ax_global],
             *self.obstacle_patches[self.ax_local], *self.obstacle_labels,
@@ -175,10 +180,12 @@ class PlannerVisualizer:
             Line2D([], [], color="#d000ff", linewidth=3.0, label="selected"),
             Patch(facecolor="#0077b6", edgecolor="#023e8a", label="ego"),
             Patch(facecolor="#d62828", edgecolor="#780000", label="obstacle"),
+            Line2D([], [], marker="*", color="none", markerfacecolor="#7b2cbf",
+                   markeredgecolor="white", markersize=11, label="roundabout conflict point"),
         ]
         self.ax_local.legend(handles=handles, loc="lower right", fontsize=8)
 
-    def _update_obstacles(self, ax, obstacles, labels=False, origin=(0.0, 0.0)):
+    def _update_obstacles(self, ax, obstacles, labels=False, origin=(0.0, 0.0), merge=None):
         patches = self.obstacle_patches[ax]
         origin_x, origin_y = origin
         for index, patch in enumerate(patches):
@@ -197,12 +204,28 @@ class PlannerVisualizer:
                 Affine2D().rotate(float(obj.get("heading", 0.0)))
                 .translate(float(obj["x"]) - origin_x,
                            float(obj["y"]) - origin_y) + ax.transData)
+            obj_id = int(obj.get("id", -1))
+            if merge and merge.get("active") and obj_id == int(merge.get("sa_id", -2)):
+                patch.set_facecolor("#ffb703")
+                patch.set_edgecolor("#9c6500")
+            elif merge and merge.get("active") and obj_id == int(merge.get("sb_id", -2)):
+                patch.set_facecolor("#3a86ff")
+                patch.set_edgecolor("#003f88")
+            else:
+                patch.set_facecolor("#d62828")
+                patch.set_edgecolor("#780000")
             patch.set_visible(True)
             if labels:
                 label = self.obstacle_labels[index]
                 label.set_position((float(obj["x"]) - origin_x,
                                     float(obj["y"]) - origin_y))
-                label.set_text(str(obj.get("id", "?")))
+                role = ""
+                if merge and merge.get("active"):
+                    if obj_id == int(merge.get("sa_id", -2)):
+                        role = " preceding"
+                    elif obj_id == int(merge.get("sb_id", -2)):
+                        role = " following"
+                label.set_text(f"{obj.get('id', '?')}{role}")
                 label.set_visible(True)
 
     def update(self, _frame):
@@ -269,8 +292,20 @@ class PlannerVisualizer:
         self.global_ego.set_xy(ego_xy)
         self.local_ego.set_xy(to_local(ego_xy))
         obstacles = snapshot.get("obstacles", [])[:20]
-        self._update_obstacles(self.ax_global, obstacles)
-        self._update_obstacles(self.ax_local, obstacles, labels=True, origin=fixed_origin)
+        merge = snapshot.get("merge", {})
+        self._update_obstacles(self.ax_global, obstacles, merge=merge)
+        self._update_obstacles(self.ax_local, obstacles, labels=True,
+                               origin=fixed_origin, merge=merge)
+
+        if merge.get("active"):
+            target_world = [(float(merge.get("target_x", 0.0)),
+                             float(merge.get("target_y", 0.0)))]
+            self.merge_target_global.set_offsets(target_world)
+            self.merge_target_local.set_offsets(to_local(target_world))
+        else:
+            empty = [(math.nan, math.nan)]
+            self.merge_target_global.set_offsets(empty)
+            self.merge_target_local.set_offsets(empty)
 
         # fixed는 모든 local artist를 ego 기준 상대좌표로 변환하므로 축 역시
         # 항상 [-r,+r]에 고정해야 ego=(0,0)가 정확히 중앙에 온다. 예전 조건은
@@ -296,6 +331,15 @@ class PlannerVisualizer:
             f"rejected  lat_acc:{lat_rejected}  lon_acc:{lon_rejected}\n"
             f"          curvature:{curv_rejected}  collision:{collision_rejected}"
         )
+        if merge.get("active"):
+            conflict_gap = float(merge.get("conflict_s", 0.0)) - float(ego.get("s", 0.0))
+            info += (
+                f"\nROUNDABOUT MERGE safe:{merge.get('gap_safe', False)}"
+                f" conflict_gap:{conflict_gap:.1f} m"
+                f" entry_t:{float(merge.get('entry_time', 0.0)):.1f} s"
+                f"\npreceding:{merge.get('sa_id', '?')}"
+                f"  following:{merge.get('sb_id', '?')}"
+            )
         self.info_text.set_text(info)
         return self.artists
 
