@@ -83,9 +83,10 @@ void LoadParams(const std::string& yaml_path,
                  CollisionCheckConfig& collision_cfg,
                  CurveSpeedConfig& curve_speed_cfg,
                  FollowingConfig& following_cfg,
-                 AvoidConfig& avoid_cfg,
-                 MergeConfig& merge_cfg,
-                 PlannerVisualizationConfig& visualization_cfg,
+                AvoidConfig& avoid_cfg,
+                MergeConfig& merge_cfg,
+                HighwayMergeConfig& highway_merge_cfg,
+                PlannerVisualizationConfig& visualization_cfg,
                  double& wheelbase,
                  double& lane_width,
                  std::string& waypoint_file) {
@@ -172,6 +173,34 @@ void LoadParams(const std::string& yaml_path,
     loadInto(root, "planner/merge/commit_distance",        merge_cfg.commit_distance);
     loadInto(root, "planner/merge/safe_confirm_cycles",    merge_cfg.safe_confirm_cycles);
     loadInto(root, "planner/merge/cross_speed_floor",      merge_cfg.cross_speed_floor);
+
+    loadInto(root, "planner/highway_merge/enabled",                    highway_merge_cfg.enabled);
+    loadInto(root, "planner/highway_merge/approach_distance",          highway_merge_cfg.approach_distance);
+    loadInto(root, "planner/highway_merge/stop_buffer",                highway_merge_cfg.stop_buffer);
+    loadInto(root, "planner/highway_merge/target_corridor_half_width", highway_merge_cfg.target_corridor_half_width);
+    loadInto(root, "planner/highway_merge/object_search_distance",     highway_merge_cfg.object_search_distance);
+    loadInto(root, "planner/highway_merge/min_heading_alignment",      highway_merge_cfg.min_heading_alignment);
+    loadInto(root, "planner/highway_merge/min_front_gap",              highway_merge_cfg.min_front_gap);
+    loadInto(root, "planner/highway_merge/min_rear_gap",               highway_merge_cfg.min_rear_gap);
+    loadInto(root, "planner/highway_merge/min_front_ttc",              highway_merge_cfg.min_front_ttc);
+    loadInto(root, "planner/highway_merge/min_rear_ttc",               highway_merge_cfg.min_rear_ttc);
+    loadInto(root, "planner/highway_merge/max_wait_time",              highway_merge_cfg.max_wait_time);
+    loadInto(root, "planner/highway_merge/commit_distance",            highway_merge_cfg.commit_distance);
+    loadInto(root, "planner/highway_merge/safe_confirm_cycles",        highway_merge_cfg.safe_confirm_cycles);
+    loadInto(root, "planner/highway_merge/cross_speed_floor",          highway_merge_cfg.cross_speed_floor);
+    highway_merge_cfg.zones.clear();
+    const YAML::Node highway_zones = root["planner"]["highway_merge"]["zones"];
+    if (highway_zones && highway_zones.IsSequence()) {
+        for (const auto& node : highway_zones) {
+            HighwayMergeZone zone;
+            zone.name = node["name"] ? node["name"].as<std::string>()
+                                     : "highway_merge";
+            zone.start_s = node["start_s"].as<double>();
+            zone.conflict_s = node["conflict_s"].as<double>();
+            zone.completion_s = node["completion_s"].as<double>();
+            highway_merge_cfg.zones.push_back(zone);
+        }
+    }
 
     loadInto(root, "planner/visualization/enabled",       visualization_cfg.enabled);
     loadInto(root, "planner/visualization/publish_hz",    visualization_cfg.publish_hz);

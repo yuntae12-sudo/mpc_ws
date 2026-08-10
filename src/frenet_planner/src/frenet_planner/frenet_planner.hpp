@@ -85,6 +85,8 @@ private:
 
     struct MergeContext {
         bool active = false;
+        MergeType type = MergeType::NONE;
+        int highway_zone_index = -1;
         MergePhase phase = MergePhase::APPROACH;
         bool gap_safe = false;
         bool gap_locked = false;
@@ -134,6 +136,7 @@ private:
     FollowingConfig following_cfg_{};
     AvoidConfig avoid_cfg_{};
     MergeConfig merge_cfg_{};
+    HighwayMergeConfig highway_merge_cfg_{};
     PlannerVisualizationConfig visualization_cfg_{};
     std::unique_ptr<PlannerDebugWriter> debug_writer_;
     double wheelbase_ = 3.0;

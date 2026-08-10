@@ -95,6 +95,11 @@ void PlannerDebugWriter::Publish(const RefLine& ref,
 
     out << ",\"merge\":{";
     out << "\"active\":" << (mode == MERGE ? "true" : "false");
+    out << ",\"type\":\"";
+    if (mode != MERGE) out << "NONE";
+    else if (command.merge_type == MergeType::HIGHWAY) out << "HIGHWAY";
+    else out << "ROUNDABOUT";
+    out << '"';
     out << ",\"target_lane\":0";
     out << ",\"target_d\":";
     WriteNumber(out, mode == MERGE ? command.merge_target_d : 0.0);

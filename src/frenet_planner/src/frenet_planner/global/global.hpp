@@ -23,6 +23,12 @@ enum BehaviorState {
     EMERGENCY
 };
 
+enum class MergeType {
+    NONE = 0,
+    ROUNDABOUT,
+    HIGHWAY,
+};
+
 // --- ObjectStatus 한 오브젝트 -------------
 struct ObjectInfo {
     int id;
@@ -73,6 +79,7 @@ struct PlannerCommand {
     double merge_entry_time;
     bool merge_committed;
     bool merge_crossing;
+    MergeType merge_type;
 };
 
 // =========================================================

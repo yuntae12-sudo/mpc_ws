@@ -29,4 +29,12 @@ RoundaboutGap FindRoundaboutGap(const RefLine& ref, const FrenetState& ego,
                                 double max_ego_accel,
                                 const std::unordered_map<int, double>* yaw_rates = nullptr);
 
+// Global Path가 램프에서 본선으로 이어지는 고주로 합류용. 목표 corridor에 투영된
+// 차량의 합류 완료시점 앞/뒤 거리와 TTC를 함께 만족하는 첫 진입시간을 찾는다.
+RoundaboutGap FindHighwayMergeGap(const RefLine& ref, const FrenetState& ego,
+                                  const std::vector<ObjectInfo>& obstacles,
+                                  const HighwayMergeConfig& cfg,
+                                  const HighwayMergeZone& zone,
+                                  double desired_speed, double max_ego_accel);
+
 #endif

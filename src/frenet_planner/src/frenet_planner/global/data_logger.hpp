@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "frenet_planner/frenet/ref_line.hpp"
 #include "frenet_planner/frenet/path_generator.hpp"
@@ -78,6 +79,34 @@ struct MergeConfig {
     double cross_speed_floor = 3.0;     // [m/s] COMMIT/CROSS 중 교차구역 이탈 최저 목표속도
 };
 
+// 고주로/본선 합류 구간. Global Path가 이미 램프에서 본선으로 이어지는 형상을
+// 가지므로 횡경로는 d=0을 유지하고, 본선 corridor의 선행/후행 차량 사이 시간·
+// 거리 gap에 맞춰 종방향 진입 시점만 결정한다.
+struct HighwayMergeZone {
+    std::string name;
+    double start_s = -1.0;              // [m] 합류 정책 활성 시작점
+    double conflict_s = -1.0;           // [m] 본선 차로와 실질적으로 겹치기 시작하는 점
+    double completion_s = -1.0;         // [m] 본선 중앙 정렬이 끝나는 점
+};
+
+struct HighwayMergeConfig {
+    bool enabled = false;
+    std::vector<HighwayMergeZone> zones;
+    double approach_distance = 50.0;    // [m] 향후 속도 기반 사전 감지 확장 여유
+    double stop_buffer = 4.0;            // [m] unsafe일 때 conflict_s 전 정지 여유
+    double target_corridor_half_width = 5.5; // [m] 합류 전 평행 본선까지 포함
+    double object_search_distance = 100.0;   // [m] conflict 전후 차량 탐색 범위
+    double min_heading_alignment = 0.5; // cos(delta heading) 하한
+    double min_front_gap = 8.0;         // [m] 합류 완료 시 선행차 최소 거리
+    double min_rear_gap = 10.0;         // [m] 합류 완료 시 후행차 최소 거리
+    double min_front_ttc = 2.0;         // [s]
+    double min_rear_ttc = 3.0;          // [s]
+    double max_wait_time = 10.0;        // [s]
+    double commit_distance = 20.0;      // [m]
+    int safe_confirm_cycles = 3;
+    double cross_speed_floor = 4.0;     // [m/s]
+};
+
 // waypoint 파일("x y" 또는 "x,y") -> RefLine
 bool LoadReferenceLine(const std::string& path, RefLine& out_ref, double max_curvature);
 
@@ -92,6 +121,7 @@ void LoadParams(const std::string& yaml_path,
                 FollowingConfig& following_cfg,
                 AvoidConfig& avoid_cfg,
                 MergeConfig& merge_cfg,
+                HighwayMergeConfig& highway_merge_cfg,
                 PlannerVisualizationConfig& visualization_cfg,
                 double& wheelbase,
                 double& lane_width,

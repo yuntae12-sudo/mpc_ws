@@ -181,7 +181,7 @@ class PlannerVisualizer:
             Patch(facecolor="#0077b6", edgecolor="#023e8a", label="ego"),
             Patch(facecolor="#d62828", edgecolor="#780000", label="obstacle"),
             Line2D([], [], marker="*", color="none", markerfacecolor="#7b2cbf",
-                   markeredgecolor="white", markersize=11, label="roundabout conflict point"),
+                   markeredgecolor="white", markersize=11, label="merge conflict point"),
         ]
         self.ax_local.legend(handles=handles, loc="lower right", fontsize=8)
 
@@ -333,8 +333,9 @@ class PlannerVisualizer:
         )
         if merge.get("active"):
             conflict_gap = float(merge.get("conflict_s", 0.0)) - float(ego.get("s", 0.0))
+            merge_type = str(merge.get("type", "ROUNDABOUT"))
             info += (
-                f"\nROUNDABOUT MERGE safe:{merge.get('gap_safe', False)}"
+                f"\n{merge_type} MERGE safe:{merge.get('gap_safe', False)}"
                 f" conflict_gap:{conflict_gap:.1f} m"
                 f" entry_t:{float(merge.get('entry_time', 0.0)):.1f} s"
                 f"\npreceding:{merge.get('sa_id', '?')}"

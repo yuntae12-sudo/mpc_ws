@@ -59,6 +59,29 @@ planner:
     safe_confirm_cycles: 3     # 연속 안전 판정 횟수(20Hz)
     cross_speed_floor: 3.0     # [m/s] COMMIT/CROSS 중 교차구역 이탈 최저 목표속도
 
+  # --- 고주로/본선 합류 MERGE --------------------------------
+  # 실측한 세 합류 구간의 start/conflict/completion_s를 zone별로 사용한다.
+  # Global Path 자체가 본선으로 합류하므로 별도 차선변경 offset은 만들지 않는다.
+  highway_merge:
+    enabled: true
+    zones:
+      - { name: highway_merge_1, start_s: 1113.35, conflict_s: 1237.04, completion_s: 1274.73 }
+      - { name: highway_merge_2, start_s: 1424.45, conflict_s: 1524.41, completion_s: 1547.54 }
+      - { name: highway_merge_3, start_s: 1547.54, conflict_s: 1564.72, completion_s: 1583.76 }
+    approach_distance: 50.0 # 향후 속도 기반 start_s 사전 감지에 사용할 여유
+    stop_buffer: 4.0
+    target_corridor_half_width: 5.5 # 합류 전 평행한 본선 1개 차로까지 보수적으로 포함
+    object_search_distance: 100.0
+    min_heading_alignment: 0.5
+    min_front_gap: 8.0
+    min_rear_gap: 10.0
+    min_front_ttc: 2.0
+    min_rear_ttc: 3.0
+    max_wait_time: 10.0
+    commit_distance: 20.0
+    safe_confirm_cycles: 3
+    cross_speed_floor: 4.0
+
   # --- 실시간 후보 경로 디버그 시각화 -----------------------
   # Planner가 최신 스냅샷을 원자적으로 갱신하고 tools/planner_visualizer.py가 읽는다.
   visualization:
