@@ -597,12 +597,8 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
         for (const auto& p : combined) if (p.valid) stats->combined_valid_after_curvature++;
     }
 
-    // 4. 충돌 필터링(Sec.VI) - obstacles가 없으면 아무 것도 안 걸러지므로
-    // 안전하게 항상 호출해도 된다(장애물 없을 때 기존 동작과 동일).
-    // TODO(검증 필요): FilterByCollision은 exempt_id 하나만 받는데, MERGE는
-    // sa/sb 둘 다와 가까운 게 정상이라 둘 다 면제가 필요할 수 있음. sa/sb
-    // 간격이 충분히 넓다면 문제없겠지만, 좁은 gap으로 MERGE 검증 시 후보가
-    // 0개로 걸러지면 이 지점부터 확인.
+    // 4. 모든 모드에 공통 OBB 충돌 필터를 적용한다. FOLLOWING/MERGE leader는
+    // 실제 후보 구간에서는 검사하고 reactive coast 연장에서만 제외한다.
     if (!obstacles.empty()) {
         const int coast_exempt_id =
             (cmd.mode == FOLLOWING || cmd.mode == MERGE) ? cmd.leader_id : -1;

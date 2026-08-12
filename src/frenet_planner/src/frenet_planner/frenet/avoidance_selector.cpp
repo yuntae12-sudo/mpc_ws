@@ -46,13 +46,6 @@ bool FindStaticAvoidanceTarget(const RefLine& ref, const FrenetState& ego,
         double s, d, s_dot;
         ProjectObjectToFrenet(ref, obj, s, d, s_dot);
 
-        // raw obj.speed(크기만 있는 속력)가 아니라 경로에 투영한 종방향
-        // 속도(s_dot)로 "정지했는지"를 판단한다. 보행자처럼 내 진행 방향과
-        // 수직으로 움직이는 장애물은 raw speed는 0이 아니지만 s_dot은
-        // cos(delta_theta)~0이라 거의 0이 된다 - 그래야 "내 경로 기준으로는
-        // 정지해 있다"는 실제 의도가 맞게 반영된다. 회전교차로처럼 차량이
-        // 선회하며 접근하는 경우도 마찬가지로 raw speed와 s_dot이 갈릴 수
-        // 있어 경로 기준 값을 써야 한다.
         if (std::fabs(s_dot) > cfg.trigger_max_speed) {
             // TODO(dynamic avoidance): 상대속도/TTC/미래 위치를 이용한 동적
             // 장애물 회피를 같은 AVOID 모드의 별도 context로 추가할 것.

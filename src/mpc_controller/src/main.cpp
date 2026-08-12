@@ -30,16 +30,8 @@ CtrlCmd makeStopCommand() {
     return cmd;
 }
 
-// frenet_planner_node가 보낸 PlannedPath(샘플 간격 pp.dt) -> mpc의 ReferencePath.
-//
-// pp는 frenet_planner_node에서 매 사이클 "그 순간"의 ego 상태로부터 새로
-// 생성되는 궤적이므로, MPC 쪽에서 위치 기준으로 가장 가까운 ref 점을 찾는
-// 방식(closest-point tracking)을 쓰면 안 된다: 정지 상태에서 시작하면
-// pp[0]의 목표 속도도 0이라서, "가만히 있기"가 위치오차/속도오차 모두 0인
-// 완벽한 해가 되어 절대 출발하지 못하는 국소최소값에 빠진다(실측 재현
-// 완료). pp는 이미 시간에 따라 균일 샘플링돼 있으므로, MPC의 각 스텝
-// i(시간 i*dst_dt)에 대응하는 pp 시점을 선형보간해 시간 정렬된 궤적으로
-// 맞춰 넘긴다.
+// Planner 경로를 MPC 시간 간격에 맞춰 선형보간한다. 위치 최근접점이 아니라
+// 시간 인덱스를 유지해야 Planner가 설계한 속도 프로파일도 함께 추종된다.
 ReferencePath ToReferencePath(const PlannedPath& pp, double dst_dt, int steps) {
     ReferencePath ref;
     const size_t n = pp.size();
@@ -108,10 +100,7 @@ int main() {
     while (true) {
         const auto t0 = std::chrono::steady_clock::now();
 
-        // frenet_planner_node가 (아직) PlannedPath를 한 번도 안 보내온 상태.
-        // Plan() 실패 시 마지막 유효 경로로 버티는 로직은 이제 frenet_planner_node
-        // 쪽에서 전담한다(그쪽 main.cpp 참고) - mpc_controller는 받은 걸 그대로
-        // 신뢰하는 단순 소비자.
+        // Planner 경로를 받기 전에는 정지 명령을 유지한다.
         if (!udp.has_planned_path()) {
             std::printf("[MPC] Waiting for planned path...\n");
             udp.send_ctrl_cmd(makeStopCommand());
@@ -121,7 +110,7 @@ int main() {
 
         const PlannedPath pp = udp.get_planned_path();
 
-        // 1) ego 스냅샷: frenet_planner_node가 중계한 EgoVehicleStatus(ground truth) 그대로 사용.
+        // Planner와 Controller가 동일 상태를 사용하도록 PlannedPath의 Ego snapshot을 사용한다.
         MPCState ego_snap;
         ego_snap.x = pp.ego_x;
         ego_snap.y = pp.ego_y;
@@ -169,9 +158,7 @@ int main() {
             std::printf("[MPC] solver msg: %s\n", res.solver_msg.c_str());
         }
 
-        // 진단용: 급브레이크(|accel|>1.5)가 어느 cost 항 때문인지 확인 - 목표속도가
-        // 고정인데도 급감속/급가속이 반복되는 현상(구불구불한 구간 실측 재현)의
-        // 원인을 특정하기 위한 임시 로그. 원인 확정되면 제거.
+        // 큰 종방향 입력의 원인을 확인하기 위한 cost 진단 로그.
         if (std::fabs(res.control.accel) > 1.5) {
             CostBreakdown bd = computeCostBreakdown(res.predicted_states, res.controls, ref,
                                                      prev_control_for_debug, mpc_params);
@@ -221,17 +208,6 @@ int main() {
         cmd.brake = static_cast<float>(brake_norm);
         cmd.steer = static_cast<float>(steer_norm);
         udp.send_ctrl_cmd(cmd);
-
-        // d/d_dot/steer_norm을 같이 찍어서 횡방향 오차가 조향 포화(steer_norm이
-        // ±1.0에 붙어있는데도 d가 못 줄어듦 - 액추에이션/모델 한계) 때문인지,
-        // 여유가 있는데도 못 줄이는 것(모델이 필요한 조향을 과소평가)인지 구분한다.
-        // d/d_dot은 frenet_planner_node가 PlannedPath에 실어 보내준 값 그대로.
-        // TEMP: Object Info UDP 검증 중 로그가 너무 빨라 다른 로그를 가리므로 잠시 주석 처리.
-        // std::printf("[MPC] pos=(%.2f,%.2f) yaw=%.2f vx=%.2f | d=%.3f d_dot=%.3f | "
-        //             "steer=%.3f rad (norm=%.2f) | accel_raw=%.3f m/s2 | accel=%.2f brake=%.2f | cost=%.2f\n",
-        //             ego_snap.x, ego_snap.y, ego_snap.yaw, ego_snap.vx,
-        //             pp.d, pp.d_dot,
-        //             steer_rad, steer_norm, accel_raw, accel_norm, brake_norm, res.cost);
 
         std::this_thread::sleep_until(t0 + period);
     }

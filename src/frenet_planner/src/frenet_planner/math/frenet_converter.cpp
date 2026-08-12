@@ -130,9 +130,7 @@ void CartesianToFrenet(const RefLine& ref, const CartesianState& cs,
              + (one_minus_kd / (cos_dtheta * cos_dtheta)) * delta_theta_prime;
 
     // 식 (7)을 s_dot에 대해 정리: v_x = s_dot*(1-kr d)/cos(dtheta)
-    // TODO(추후 개발 필요, FSM 저속 처리와 함께): cs.v ≈ 0 이면 s_dot ≈ 0이 되어
-    // 아래 s_ddot 계산에서 0/0이 아니라 s_dot^2 항이 사라져 값 자체는 유한하지만,
-    // "저속에서 재투영이 실제로 의미 있는가"는 FSM 설계 이후 다시 검토해야 함.
+    // 저속 경로 생성은 FrenetPlanner의 별도 fallback이 담당한다.
     s_dot = cs.v * cos_dtheta / one_minus_kd;
 
     // a_x 식을 s_ddot에 대해 정리

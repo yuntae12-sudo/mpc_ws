@@ -54,14 +54,7 @@ double computeControlRateCost(const MPCControl& u_prev, const MPCControl& u_cur,
 {
     double dd = u_cur.delta - u_prev.delta;
     double da = u_cur.accel - u_prev.accel;
-    // steer/accel 변화율을 독립된 가중치로 분리. 예전엔 accel 쪽을
-    // weight_steer*0.3로 고정 파생시켰는데(그 배수 자체는 bang-bang accel을
-    // 잡느라 튠한 값, 아래 참고), steer 쪽 감쇠(조향 흔들림/오버슈트 억제)를
-    // 완만한 곡선 지속 추종 성능 개선을 위해 따로 올려야 하는 상황이 생겨서
-    // (실측: 지속 곡선에서 d가 최대 0.47m까지 벌어짐 - 하네스 시뮬레이션으로
-    // control_rate를 15->100까지 올릴수록 d가 단조감소함을 확인) 완전히
-    // 분리했다. accel 쪽을 그대로 같이 올리면 급가감속 페널티도 같이 커져서
-    // 목표속도 추종이 둔해지는 부작용이 있다.
+    // steer와 acceleration 변화율은 단위와 튜닝 목적이 달라 독립 가중치를 쓴다.
     return weight_steer * dd*dd + weight_accel * da*da;
 }
 
@@ -96,15 +89,7 @@ CostBreakdown computeCostBreakdown(
     const double dt_scale   = params.dt / kTunedDt;   // 적분류 stage cost
     const double rate_scale = kTunedDt / params.dt;   // 미분류 rate cost
 
-    // ref는 main.cpp의 ToReferencePath()가 이미 MPC의 dt로 시간 정렬(time-aligned)
-    // 재샘플링해서 넘긴다 (ref[i] == "지금부터 i*dt초 후에 있어야 할 목표").
-    // 예전엔 여기서 상태의 현재 위치에 가장 가까운 ref 점을 매 스텝 새로 검색했는데,
-    // Frenet 로컬 플래너가 매 사이클 "지금 이 순간"의 ego 상태에서 새로 경로를
-    // 만들다 보니, 정지 상태로 시작하면 ref[0]의 목표 속도도 0이 되어 "제자리에
-    // 가만히 있기"가 위치/속도 오차 모두 0인 완벽한 해가 되어버려 출발 자체를
-    // 못 하는 국소최소값에 빠지는 문제가 실측으로 확인됐다. 시간 인덱스로 직접
-    // 대응시키면 "가만히 있는" 상태도 그 시간에 도달해 있어야 할 목표(더 앞선
-    // 위치/속도)와 비교되므로 이 함정이 사라진다.
+    // ref는 main.cpp에서 MPC dt로 시간 정렬되며 ref[i]는 i*dt 시점의 목표다.
 
     // Stage costs (i = 0 .. N-1)
     for (size_t i = 0; i < N; ++i) {

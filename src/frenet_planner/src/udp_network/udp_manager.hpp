@@ -29,9 +29,8 @@ public:
     bool has_object_info() const;
     std::vector<ObjectInfo> get_objects() const;
 
-    // GPS/IMU 검증용 - main.cpp의 실제 ego pose 소스로는 아직 연동 안 됨(그대로
-    // ego_info_receiver_ 사용). GPS(위치+속도)와 IMU(yaw)를 조합해 VehicleState
-    // 모양으로 반환한다. GPS가 아직 fix를 못 잡았으면 has_gps_imu_pose()==false.
+    // GPS 위치·속도와 IMU yaw를 결합한 VehicleState를 반환한다.
+    // localization.source가 gps_imu이면 Planner의 실제 상태 입력으로 사용된다.
     bool has_gps_imu_pose() const;
     VehicleState get_gps_imu_pose() const;
 

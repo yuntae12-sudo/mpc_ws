@@ -9,8 +9,6 @@
 
 namespace {
 
-constexpr size_t kHeaderSize = 14;
-constexpr const char* kExpectedHeader = "#MoraiObjInfo$";
 constexpr size_t kDataOffset = 38;
 // 공식 ObjectInfo 정의(NetworkModule) 기준 슬롯 stride는 106바이트
 // (obj_id~accel_z 68바이트 + link_id[38] 38바이트). 이전에 68로 잘못 잡아서
@@ -35,22 +33,6 @@ T read_at(const uint8_t* raw_data, size_t offset) {
 ObjectInfoReceiver::ObjectInfoReceiver(const std::string& ip, int port) : Receiver(ip, port) {}
 
 void ObjectInfoReceiver::parse_data(const uint8_t* raw_data, size_t size) {
-    // TEMP DEBUG: 네이티브 MORAI UDP 재검증용 - 브릿지가 아니라 진짜 MORAI가 보낸
-    // 패킷인지(2160바이트 근처, 헤더 일치) 확인.
-    {
-        static int count = 0;
-        if (count < 5) {
-            ++count;
-            const bool header_ok = size >= kHeaderSize &&
-                std::memcmp(raw_data, kExpectedHeader, kHeaderSize) == 0;
-            std::printf("[ObjectInfo raw] size=%zu header_ok=%d first16=", size, header_ok);
-            for (size_t i = 0; i < std::min<size_t>(16, size); ++i) {
-                std::printf("%02x ", raw_data[i]);
-            }
-            std::printf("\n");
-        }
-    }
-
     if (size < kMinPacketSize) return;
 
     const size_t max_slots = std::min(kMaxSlots, (size - kDataOffset) / kSlotSize);
@@ -67,7 +49,7 @@ void ObjectInfoReceiver::parse_data(const uint8_t* raw_data, size_t size) {
         const float pose_x = read_at<float>(raw_data, base + 4);
         const float pose_y = read_at<float>(raw_data, base + 8);
         const float heading_deg = read_at<float>(raw_data, base + 16);
-        const float size_x = read_at<float>(raw_data, base + 20);  // TODO: 차량 전후(length) 추정
+        const float size_x = read_at<float>(raw_data, base + 20);
         const float width = read_at<float>(raw_data, base + 24);
         const float vel_x = read_at<float>(raw_data, base + 44);
         const float vel_y = read_at<float>(raw_data, base + 48);
@@ -85,8 +67,7 @@ void ObjectInfoReceiver::parse_data(const uint8_t* raw_data, size_t size) {
         objects.push_back(obj);
     }
 
-    // TEMP DEBUG: 20Hz 기준 약 1Hz로 파싱된 객체 리스트 출력 - 106-stride로
-    // 두 번째 객체 이후도 값이 정상인지 확인.
+    // 운용 중 ObjectInfo 연결 및 크기값 확인용 저주기 로그.
     {
         static int tick = 0;
         if (++tick % 20 == 0) {

@@ -1,104 +1,137 @@
-# mpc_ws
+# MPC Workspace
 
-## Installation
+MORAI와 UDP로 연결되는 자율주행 Planner/Controller 워크스페이스입니다.
+현재 주행 파이프라인은 ROS에 의존하지 않는 두 개의 실행 파일로 구성됩니다.
 
-깃 클론할 때 이렇게 해야 morai_msgs 같이 나와서 개발할 수 있음
-
-```bash
-git clone --recurse-submodules https://github.com/yuntae12-sudo/mpc_ws.git
+```text
+MORAI GPS/IMU/ObjectInfo
+          ↓ UDP
+Frenet Planner (20 Hz)
+          ↓ PlannedPath UDP :9300
+MPC Controller (20 Hz)
+          ↓ CtrlCmd UDP
+        MORAI
 ```
 
-이미 clone한 경우:
-```bash
-git submodule update --init --recursive
-```
-## 6/25일 경과
-k-city 경로,launch 추가 및 경로 추정 완료
-현재 k-city 코너 기반하여 속도 가변 주행. but pid기반으로 진행됨
+## 구성
 
-## 실행 
-```bash
-roslaunch mpc_node mpc_node.launch
-```
-이때 gps,imu 위치 2,0,0으로 실행해야 경로 추정이 잘됨
+- `src/frenet_planner`: Frenet 후보 생성, 모드 판단, 충돌검사, 경로 선택
+- `src/mpc_controller`: LTV kinematic bicycle MPC 및 MORAI 제어 명령 송신
+- `src/behavior_planner`: 팀원 개발 영역. 현재 UDP 주행 파이프라인과 미연동
+- `src/object_udp_bridge`: ROS Object/Ego 토픽을 UDP로 중계하는 진단 도구
+- `src/MORAI-ROS_morai_msgs`: MORAI ROS 메시지 서브모듈
 
-## 6/27일 개발 내용
-6/27
+## 구현된 Planner 기능
 
-1. 기존 종방향 PID 제어기 제거 → Only MPC로 주행
+- Lane Keeping
+- Constant-time-gap Following
+- 정적 장애물 Avoid
+- 회전교차로 Merge
+- 고주로 다중 conflict-zone Merge
+- 곡률·종/횡가속도 제한
+- CTRV 장애물 예측과 SAT OBB 충돌검사
+- 저속 경로 fallback과 MPC 정지 데드락 복구
+- GPS/IMU 기반 localization
+- 후보/탈락/선택 경로 실시간 시각화
 
+동적 장애물 Avoid와 Behavior Planner 연동은 아직 구현되지 않았습니다.
 
-기존에 accel/brake를 PID로 따로 제어하던 것을 MPC 단일 출력으로 통합
-steer / throttle / brake 모두 MPC 한 곳에서 출력
-
-
-2. vehicle_model kinematic bicycle model 1차 Taylor 선형화
-
-
-기존: 비선형 모델 그대로 사용 → solver가 gradient 계산할 때마다 predictTrajectory() 호출 (4N × iter번)
-gradient descent가 non-convex cost landscape에서 동작 → 급조향/급가속 시 gradient 폭발 또는 local minimum 수렴 위험
-
-
-변경: 현재 동작점 (x̄, ū)에서 1차 Taylor 선형화 → A_k, B_k, c_k 행렬 계산
-  x_{k+1} ≈ A_k * x_k + B_k * u_k + c_k
-
-이후 gradient / line search에서 비선형 forward sim 대신 행렬 곱만으로 trajectory 예측
-연산 부담 감소 + convex 문제로 안정적 수렴
-추가된 함수:
-
-linearizeBicycle(): 동작점 하나에서 A, B, c 계산
-buildLTVModels(): horizon N 스텝 전체 선형화 모델 계산
-
-
-3. Planner / Controller 분리
-
-
-기존: mpc_node.cpp 안에 Planner(경로 생성)와 Controller(MPC 최적화)가 섞여있던 구조
-변경:
-planner/path_planner.cpp: ReferencePath 생성 담당 (Planner 역할)
-controller/mpc_node.cpp: ReferencePath를 받아 solveMPC() 호출만 (Controller 역할)
-
-분리 이유:
-MPC solver는 ReferencePath를 입력으로 받아야 동작하므로 Planner가 필요함
-하지만 Planner 로직을 mpc_node에서 분리해두면 나중에 Expert/PA/SA Planner로 교체할 때 path_planner.cpp만 바꾸면 됨
-추후 Expert Planner, PA, SA 모두 같은 MPC Controller 재사용 가능
-
-## 대회 규정에 맞는 ROS1 msgs 파일 클론
-git clone -b beta_drive https://github.com/MORAI-Autonomous/MORAI-ROS_morai_msgs.git
-
-## 해야할 일
-1. 현재 ROS토픽으로 진행중 이를 UDP로 변환
-2. planning 개발
-+파라미터 조금씩 하면서 수정 필요
-+ROS 버전 나오면 인지 파트에 넘겨주고, UDP 변환 진행
-(데이터 수집 자체는 ROS로 진행해야하기 때문, UDP로 데이터 수집 시 오류가 많다고 함)
-
-
-## 7/4일 개발 내용
-
-현재 Frenet Frame Planner 까지 개발 완료된 상태
-아직 리팩토링은 하지 않아서 리팩토링 과정 필요
-추가로 Planner & Controller 통합 과정 필요
-
-## 7월 5일 개발 내용
-
-MPC 파일에 남아있던 필요없는 코드들 삭제
-
-## Frenet 후보 경로 실시간 시각화
-
-Planner 실행 중 별도 WSL 터미널에서 다음을 실행한다.
+## 빌드 및 실행
 
 ```bash
 cd ~/mpc_ws
-MPLCONFIGDIR=/tmp/matplotlib python3 src/frenet_planner/tools/planner_visualizer.py
+./run_integration.sh
 ```
 
-왼쪽은 전체 경로와 주행 이력, 오른쪽은 차량 주변 후보 경로 상세 화면이다.
-초록색은 유효 후보, 주황색은 곡률 탈락, 빨간색은 충돌 탈락, 굵은 자홍색은
-최종 선택 경로를 뜻한다. 설정은
-`src/frenet_planner/src/frenet_planner/config/params.yaml`의
-`planner.visualization`에서 켜거나 끌 수 있다.
+Planner가 UDP 911 포트를 사용하므로 실행 중 `sudo` 비밀번호가 필요할 수 있습니다.
+`Ctrl+C`로 MPC와 Planner를 함께 종료합니다.
 
-기본 `--view fixed`는 실행 시점의 상세 화면 범위를 고정한다. 차량을 따라가는
-화면이 필요하면 `--view follow`를 추가한다. 두 모드 모두 축·범례·전체 경로는
-재생성하지 않고 기존 그래픽 객체의 좌표만 갱신한다.
+개별 빌드:
+
+```bash
+cmake -S src/frenet_planner -B src/frenet_planner/build
+cmake --build src/frenet_planner/build -j
+
+cmake -S src/mpc_controller -B src/mpc_controller/build
+cmake --build src/mpc_controller/build -j
+```
+
+## 네트워크 설정
+
+Planner 설정:
+
+- `src/frenet_planner/src/udp_network/network.yaml`
+- Ego status 수신: `911`
+- ObjectInfo 수신: `7505`
+- GPS 수신: `1111`
+- IMU 수신: `2222`
+- PlannedPath 송신: `127.0.0.1:9300`
+
+MPC 설정:
+
+- `src/mpc_controller/src/udp_network/network.yaml`
+- PlannedPath 수신: `127.0.0.1:9300`
+- CtrlCmd 송신 목적지: 기본값 `172.29.96.1:9094`
+
+WSL2 주소가 바뀌면 MORAI 센서 Destination IP를 현재 WSL 주소에 맞춰야 합니다.
+
+```bash
+hostname -I
+ip -br addr
+ip route
+```
+
+현재 localization 입력은 Planner의 `network.yaml`에서 선택합니다.
+
+```yaml
+localization:
+  source: "gps_imu"  # gps_imu | ego_udp
+```
+
+## 주요 파라미터
+
+- Planner: `src/frenet_planner/src/frenet_planner/config/params.yaml`
+- MPC: `src/mpc_controller/src/config/mpc_params.yaml`
+- Global path: `src/frenet_planner/src/config/2026_molit_comp_global_path.txt`
+
+Merge의 `start_s`, `conflict_s`, `clear_s`는 현재 Global Path에 종속됩니다.
+Global Path가 바뀌면 다시 측정해야 합니다.
+
+## 시각화
+
+Planner 실행 중 다른 터미널에서 실행합니다.
+
+```bash
+cd ~/mpc_ws
+MPLCONFIGDIR=/tmp/matplotlib python3 src/frenet_planner/tools/planner_visualizer.py --view follow
+```
+
+- 초록색: 유효 후보
+- 주황색: 곡률/횡가속도 탈락
+- 빨간색: 충돌 탈락
+- 자홍색: 최종 선택 경로
+
+`--view fixed`는 고정 화면, `--view follow`는 Ego 중심 화면입니다.
+
+## 남은 개발 항목
+
+1. 고주로 Merge 반복 시나리오 회귀 검증
+2. 동적 장애물 Avoid
+3. Behavior Planner와 PlannerCommand 연결
+4. 차선 경계/주행 가능 영역 필터
+5. GPS 재밍 대응 localization
+6. Planner/MPC 자동 회귀 테스트
+
+## 서브모듈
+
+처음 clone할 때 MORAI 메시지를 함께 받으려면 다음을 사용합니다.
+
+```bash
+git clone --recurse-submodules <repository-url>
+```
+
+이미 clone했다면:
+
+```bash
+git submodule update --init --recursive
+```

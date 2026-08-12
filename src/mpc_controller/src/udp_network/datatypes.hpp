@@ -10,9 +10,9 @@
 struct VehicleState {
     double x = 0.0;      // pos_x [m]
     double y = 0.0;      // pos_y [m]
-    double yaw = 0.0;    // [rad] -- TODO: EgoVehicleStatus.yaw 원본 단위(deg 추정) 실측 로그로 확인 후 변환 확정
-    double v = 0.0;      // [m/s] -- TODO: signed_vel vs vel_x 중 어느 필드를 쓸지, 단위(km/h?) 확인 필요
-    double steer = 0.0;  // [rad] -- EgoVehicleStatus.steer, 부호(좌회전=+) 실측 확인 필요
+    double yaw = 0.0;    // [rad]
+    double v = 0.0;      // [m/s]
+    double steer = 0.0;  // 수신 상태 호환 필드 (MPC 입력에는 미사용)
     double accel = 0.0;  // [m/s^2] EgoVehicleStatus.accel passthrough
 };
 
@@ -27,4 +27,3 @@ struct CtrlCmd {
     float brake = 0.0f;        // [0, 1]
     float steer = 0.0f;        // [-1, 1]
 };
-

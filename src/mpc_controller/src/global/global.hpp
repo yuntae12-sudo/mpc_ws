@@ -113,9 +113,7 @@ struct MPCParams {
     double weight_speed_error   = 0.3;
     double weight_control       = 0.05;
     double weight_control_rate  = 0.5;
-    // control_rate(steer)와 분리된 accel 변화율 가중치. 예전엔 weight_control_rate*0.3로
-    // 파생시켰는데, steer 감쇠만 따로 올려야 하는 상황(지속 곡선 추종 개선)이 생겨서
-    // 완전히 분리했다 - yaml에 없으면 이 기본값(옛 15*0.3=4.5와 동일)을 그대로 쓴다.
+    // steer와 독립된 acceleration 변화율 가중치
     double weight_control_rate_accel = 4.5;
     double weight_terminal      = 5.0;   // 마지막 상태 가중치
 

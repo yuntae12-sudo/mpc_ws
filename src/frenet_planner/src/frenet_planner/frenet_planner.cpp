@@ -33,16 +33,7 @@ int FindHighwayMergeZone(const HighwayMergeConfig& cfg, double s) {
     return -1;
 }
 
-// 곡률 -> 목표속도.
-//
-// 예전엔 곡률 구간(0.015/0.035/0.080)마다 고정된 속도(7.0/5.5/4.0)로 뚝 떨어지는
-// 3단 계단식이었는데, 각 threshold에서 물리적으로 실제 낼 수 있는 속도
-// (v=sqrt(max_lateral_accel/k))와 비교해보면 훨씬 낮았다 - 예를 들어
-// k=0.08에서 물리적으로는 sqrt(3.0/0.08)=6.1m/s까지 가능한데 고정값 4.0으로
-// 강제로 깎았다. 실측 재현 결과 이게 코너 앞에서 필요 이상으로 거의 멈추다시피
-// 감속하고, 선회 중에도 "멈췄다 가는" 거동으로 이어져 오히려 추종을 방해했다
-// (급감속/급가속이 반복되면서 헤딩이 못 따라가 d가 벌어지는 문제와도 연결).
-// 계단 대신 물리 기반 연속 함수로 바꿔 곡률에 비례해 자연스럽게 감속하게 한다.
+// 횡가속도 한계에서 곡률별 연속 목표속도를 계산한다.
 double VelocityFromCurvature(double k, const CurveSpeedConfig& cfg, double max_lateral_accel) {
     constexpr double kSafetyMargin = 0.8;         // 한계의 80%만 사용 (여유폭 확보)
     constexpr double kMinKappaForCalc = 1e-4;      // 0 나누기 방지 (거의 직선)
@@ -50,19 +41,7 @@ double VelocityFromCurvature(double k, const CurveSpeedConfig& cfg, double max_l
     return clip(v_curve, 0.0, cfg.target_vel);
 }
 
-// 전방 lookahead 구간 내 최대 곡률로 미리 감속 (옛 lookaheadCurvature 이식).
-//
-// cfg.curve_lookahead_m(15m 고정)은 저속에서는 충분하지만, 고속(예: 9.5m/s로
-// 진입)에서는 필요한 제동거리보다 짧아서 "곡선 진입 15m 전"에야 목표속도가
-// 뚝 떨어지는데, 그 지점부터 급감속을 해도 다 못 줄이고 코너에 진입 -> 실제
-// 곡률 대비 속도가 과도해 lateral 후보가 전부 무효화되는 문제가 실측으로
-// 확인됐다(코너 진입 시 우회전 하려다 후보가 사라져 정지). 제동거리는 속도
-// 제곱에 비례하므로(v0^2-v1^2)/(2a), 현재 속도 기준으로 그 거리를 계산해 15m와
-// 비교해 더 큰 쪽을 쓴다. "가장 감속이 필요한 경우"의 목표속도로 max_curvature
-// 지점에서의 물리적 최저속도를 쓴다(예전엔 curve_vel_sharp 고정값). 실제 궤적은
-// jerk 비용 때문에 max_longitudinal_accel 전부를 안 쓰므로(더 부드러운 감속을
-// 선호), 그 절반 정도만 "편하게 낼 수 있는 감속도"로 보수적으로 잡고 여유 거리도
-// 더한다.
+// 현재 속도의 제동거리와 기본 lookahead 중 큰 범위의 최대 곡률을 사용한다.
 double LookaheadTargetSpeed(const RefLine& ref, double s_start, double ego_speed,
                              const CurveSpeedConfig& cfg, double max_longitudinal_accel,
                              double max_lateral_accel, double max_curvature) {
@@ -291,20 +270,8 @@ bool FrenetPlanner::Init(const std::string& yaml_path) {
     return true;
 }
 
-// 저속 fallback: 정지 근처에서 quintic 후보 생성/곡률필터를 거치지 않고,
-// d(s)를 "s 기준(시간이 아니라 이동거리 기준)" 스무스스텝으로 직접 설계해
-// FrenetToCartesian의 닫힌 형태로 바로 렌더링한다. d1을 그냥 고정해두는
-// 기존 저속 처리(GenerateLateralCandidates 주석 참고)보다 적극적으로 d를
-// 0으로 되돌리면서도, 두 가지를 특히 주의한다:
-//
-// 1) 시간 기준(예: "3초 안에 복귀")으로 되돌리면 저속일수록 같은 시간에
-//    이동거리가 짧아져 오히려 더 급한 커브가 필요해진다(실측 재현: fallback을
-//    처음 시간 기준으로 짜자 kappa가 -0.46까지 튀었음 - "느릴수록 더 급하게
-//    꺾어야 하는" 역설). 이동거리(kRecenterDistM) 기준으로 바꾸면 속도와
-//    무관하게 항상 같은 커브 완만도를 보장한다.
-// 2) d(s)를 직선(선형)으로 램프하면 양 끝에서 d''(기울기의 변화)가 불연속으로
-//    튀어 그 지점에서 곡률이 스파이크된다. cos 기반 smoothstep은 양끝에서
-//    기울기(d')가 0으로 자연스럽게 붙어 이 스파이크가 없다.
+// 저속 fallback은 시간 대신 이동거리 기준 cosine smoothstep으로 d를 복귀시킨다.
+// 양 끝의 d'가 0이므로 정지 근처에서도 급격한 횡이동과 곡률 spike가 생기지 않는다.
 bool FrenetPlanner::PlanLowSpeedFallback(const CartesianState& ego, double s, double d,
                                           double target_d,
                                           CartesianPath& out_path, double duration_s) const {
@@ -515,39 +482,15 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
     ArcDerivToTimeDeriv(s_dot, s_ddot, d_prime, d_pprime, d_dot, d_ddot);
     last_d_dot_ = d_dot;  // 클램프 전 원본 값 - 진단 목적(아래 kMaxDDot 클램프 폭 자체를 보려고)
 
-    // CartesianToFrenet의 s_ddot/d_ddot 역산은 "고속 모드" 근사식이라, 코너
-    // 진입 시(참조선은 이미 휘기 시작했는데 ego 실제 yaw는 아직 못 따라가서
-    // delta_theta가 벌어지는 구간) s_dot^2 항이 이 오차를 그대로 증폭시켜
-    // 실제로는 멀쩡한 상황인데도 현재 상태(start)의 s_ddot/d_ddot 자체가
-    // max_longitudinal_accel/max_lateral_accel을 넘어버리는 경우가 있었다
-    // (실측 재현: 코너 진입 직전 고속 구간에서 "No valid candidate (0 generated)"가
-    // 수십 사이클 연속). 모든 후보가 이 t=0 경계값을 그대로 물려받으므로
-    // start 자체가 한계를 넘으면 어떤 후보를 만들어도 전부 무효화된다. 실측
-    // IMU 가속도(ego.a)가 이미 물리적으로 타당한 값이므로, 이 역산 결과를
-    // 안전 한계 안으로 clamp해 "현재 상태 추정 오차"가 후보 생성 자체를
-    // 막지 않게 한다.
-    // 정확히 한계값(limit)으로 clamp하면, 그 값을 경계조건으로 받는 quintic/quartic이
-    // 다항식 특성상 구간 중간에 경계값을 "오버슈트"할 수 있어(끝점 조건만 맞추고
-    // 중간값은 별도 보장이 없음) 저속 구간(d1 후보가 start.d 하나뿐인 예외 처리)
-    // 에서 그 유일한 후보마저 필터에 걸려 후보가 전혀 안 나오는 채로 영원히
-    // 갇히는 경우가 실측으로 확인됐다(코너 끝 저속 구간에서 "0 generated"가
-    // 회복 안 되고 계속됨 - 정지 상태가 유지되니 재시도해도 같은 결과만 반복).
-    // 오버슈트 여유를 위해 한계값의 80%만 경계조건으로 허용한다.
+    // 투영 오차가 후보의 초기 가속도 경계조건을 비현실적으로 키우지 않도록
+    // 다항식 중간구간의 overshoot 여유를 포함해 한계의 80%로 제한한다.
     constexpr double kBoundaryMargin = 0.8;
     s_ddot = clip(s_ddot, -limits_.max_longitudinal_accel * kBoundaryMargin,
                   limits_.max_longitudinal_accel * kBoundaryMargin);
     d_ddot = clip(d_ddot, -limits_.max_lateral_accel * kBoundaryMargin,
                   limits_.max_lateral_accel * kBoundaryMargin);
 
-    // d_dot(횡방향 속도)도 같은 이유로 클램프가 필요하다: d_prime = (1-kr*d)*tan(delta_theta)라
-    // delta_theta(실제 yaw와 참조선 heading의 차이)가 커지면 d_dot=s_dot*d_prime도
-    // 같이 커진다. 실측 재현: 컨트롤이 흔들리던 구간에서 d_dot=-1.19m/s까지 커진
-    // 상태로 넘어오자, "중앙(d1=0)으로 되돌리는" 후보조차 그 속도를 t=0에서 그대로
-    // 이어받아야 해서(물리적 연속성) 초반에 오히려 더 벗어나야 했고, 그 결과 곡률이
-    // 폭증해 289개 후보 전부가 무효화 -> 정지까지 이어졌다(d=-2.69에서 -2.96까지
-    // 더 벗어난 뒤에야 멈춤). 정상 추종 중에는 d_dot이 0.1m/s 미만인 게 대부분이라
-    // (실측 다수 확인), 이 범위를 크게 넘으면 "헤딩 추종 오차로 인한 과대추정"으로
-    // 보고 s_ddot/d_ddot과 같은 방식으로 안전하게 클램프한다.
+    // 큰 heading 오차로 과대 추정될 수 있는 초기 횡속도도 제한한다.
     constexpr double kMaxDDot = 0.5;  // [m/s]
     d_dot = clip(d_dot, -kMaxDDot, kMaxDDot);
 

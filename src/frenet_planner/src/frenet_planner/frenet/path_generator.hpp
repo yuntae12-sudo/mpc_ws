@@ -57,19 +57,7 @@ struct KinematicLimits {
 // MakeQuintic으로 각 후보를 만들고, cfg.dt 간격으로 샘플링해 FrenetPath.d/d_d/d_dd,
 // t 를 채운다. (FrenetPath.s 계열은 비워둔 채로 반환 — longitudinal과 결합 시 채워짐)
 //
-// TODO(추후 개발 필요, FSM 저속 처리와 함께): Sec.IV-B의 저속 모드
-// (d(s) quintic, 비홀로노믹 곡률 제약)는 아직 미구현. 지금은 항상 고속
-// (d(t)) 모드만 생성한다.
-//
-// 저속(|ṡ0| < kLowSpeedThreshold) 임시 처리: d(t) quintic은 시간 기준이라
-// 정지 근처에서는 s가 거의 안 움직이는데도 d1로 정해진 시간 T 안에 무조건
-// 도달하려 해서 옆으로 미끄러지는 것과 같은 궤적이 나온다(예: s_dot≈0,
-// s_ddot=0.3 상태에서 t=0.2s 동안 실제 전진량은 6mm뿐인데, d1=-3.0 목표
-// 후보의 d_dot은 이미 -0.35 m/s에 달함 — 곡률 필터가 정확히 이 비현실적
-// 후보들을 걸러내면서 저속 시작 시 후보가 전부 무효화되는 문제로 이어짐).
-// Sec.IV-B를 구현하기 전까지는, 저속 구간에서 d1을 start.d 하나로 고정해
-// (도착조건과 시작조건이 사실상 같아 d_dot이 거의 0에 머무름) 최소한 직진
-// 가속은 가능하게 하고, 정상 속도가 되면 원래의 d1 격자 탐색을 재개한다.
+// 저속 상태는 FrenetPlanner::PlanLowSpeedFallback에서 거리 기반 경로로 처리한다.
 // =========================================================
 
 std::vector<FrenetPath> GenerateLateralCandidates(const FrenetState& start,

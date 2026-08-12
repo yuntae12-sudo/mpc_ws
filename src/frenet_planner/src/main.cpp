@@ -21,11 +21,7 @@ double NormalizeAngle(double angle) {
     return std::atan2(std::sin(angle), std::cos(angle));
 }
 
-// Plan() 실패가 오래 지속될 때 mpc_node로 보내는 "정지" 경로. 한 점(count=1,
-// v=0)만 있으면 mpc_controller의 ToReferencePath가 그 점으로 horizon 전체를
-// 채우게 되어(idx_f가 0으로 clip) 결과적으로 "여기서 정지"를 명령하는 것과
-// 동일해진다 - 기존 mpc_controller/main.cpp의 makeStopCommand()가 하던
-// 역할을 경로 레벨에서 대신한다.
+// 한 점, v=0 경로는 MPC horizon 전체에 정지 목표를 전달한다.
 CartesianPath MakeStopPath(const CartesianState& ego) {
     CartesianPath cp;
     cp.x = {ego.x};
@@ -63,12 +59,8 @@ int main() {
 
     const auto period = std::chrono::duration<double>(1.0 / kLoopFreqHz);
 
-    // Plan() 실패(주로 저속 경계에서 곡률필터에 후보가 0개 걸리는 일시적 현상)마다
-    // 매번 정지 경로를 보내면 몇 사이클만 연속 실패해도 mpc_node 쪽에서 급브레이크가
-    // 누적된다(mpc_controller/main.cpp에서 실측 재현했던 문제, 오늘 이 파일로
-    // 옮겨옴). 짧은 연속 실패는 마지막으로 성공했던 경로를 그대로 재전송해
-    // mpc_node의 MPC가 계속 능동적으로 그 경로를 향해 보정하게 하고, 그 이상
-    // 계속 실패할 때만(진짜 위험하다고 보고) 정지 경로로 넘어간다.
+    // 일시적 후보 생성 실패는 마지막 유효 경로로 흡수한다. 충돌 차단은 즉시
+    // 정지하고, 그 외 실패도 유예 시간을 넘으면 정지 경로로 전환한다.
     constexpr int kMaxTransientFailCycles = 5;  // 20Hz 기준 0.25초
     int plan_fail_streak = 0;
     CartesianPath last_cp;
@@ -108,9 +100,7 @@ int main() {
         last_vehicle_state = vs;
         has_last_vehicle_state = true;
 
-        // GPS/IMU 전환 전 shadow-mode 비교: Planner/MPC에는 계속 MORAI
-        // EgoVehicleStatus(vs)를 사용하고, 센서 기반 pose는 1Hz로 오차만 출력한다.
-        // 이 단계에서 좌표 원점/yaw 축/속도 단위를 검증한 뒤 입력을 전환한다.
+        // Ego UDP도 수신 중이면 GPS/IMU localization과 1Hz로 비교한다.
         static int localization_log_tick = 0;
         if (++localization_log_tick % 20 == 0) {
             if (udp.has_gps_imu_pose() && udp.has_ego_vehicle_state()) {
@@ -130,9 +120,7 @@ int main() {
             }
         }
 
-        // TODO: ego_cs.kappa를 vs.steer 기반으로 추정하려 했으나(mpc_controller
-        // 쪽 동일 TODO 참고), steer 단위/부호가 실측 검증 전이라 CartesianToFrenet의
-        // d_pprime 계산이 폭주할 위험이 있어 0(순간 직진 가정)으로 안전하게 둔다.
+        // 조향 센서를 상태추정에 사용하지 않으므로 순간 곡률은 0으로 둔다.
         CartesianState ego_cs;
         ego_cs.x = vs.x;
         ego_cs.y = vs.y;
