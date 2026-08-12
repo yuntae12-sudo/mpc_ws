@@ -141,37 +141,21 @@ RoundaboutGap FindRoundaboutGap(const RefLine& ref, const FrenetState& ego,
 RoundaboutGap FindHighwayMergeGap(const RefLine& ref, const FrenetState& ego,
                                   const std::vector<ObjectInfo>& obstacles,
                                   const HighwayMergeConfig& cfg,
-                                  const HighwayMergeZone& zone,
+                                  const HighwayMergeCheckpoint& checkpoint,
+                                  const VehicleShape& ego_shape,
+                                  const CollisionCheckConfig& collision_cfg,
                                   double desired_speed, double max_ego_accel) {
     RoundaboutGap result;
-    if (!cfg.enabled || zone.conflict_s < 0.0 ||
-        zone.completion_s <= zone.conflict_s || ref.points.empty()) return result;
+    if (!cfg.enabled || checkpoint.conflict_s < 0.0 ||
+        checkpoint.clear_s <= checkpoint.conflict_s || ref.points.empty()) return result;
 
-    struct LaneObject { int id; double s; double speed; };
-    std::vector<LaneObject> lane_objects;
-    const double s_hint = zone.conflict_s;
-    for (const auto& obj : obstacles) {
-        const double obj_s = FindClosestS(
-            ref, obj.x, obj.y, &s_hint, cfg.object_search_distance);
-        if (std::fabs(obj_s - zone.conflict_s) > cfg.object_search_distance) continue;
-        const RefPoint rp = Interpolate(ref, obj_s);
-        const double dx = obj.x - rp.x;
-        const double dy = obj.y - rp.y;
-        const double obj_d = -dx * std::sin(rp.theta) + dy * std::cos(rp.theta);
-        const double alignment = std::cos(obj.heading - rp.theta);
-        if (std::fabs(obj_d) > cfg.target_corridor_half_width ||
-            alignment < cfg.min_heading_alignment) continue;
-        lane_objects.push_back({obj.id, obj_s, std::max(0.0, obj.speed * alignment)});
-    }
-    result.crossing_vehicle_count = lane_objects.size();
-
-    const double distance = std::max(0.0, zone.conflict_s - ego.s);
+    const double distance = std::max(0.0, checkpoint.conflict_s - ego.s);
     const double earliest = MinimumTravelTime(
         distance, ego.s_d, desired_speed, max_ego_accel);
     const double entry_speed = std::max(0.5, std::min(
         desired_speed, std::sqrt(std::max(0.0, ego.s_d * ego.s_d +
             2.0 * std::max(max_ego_accel, 0.1) * distance))));
-    const double clear_distance = zone.completion_s - zone.conflict_s;
+    const double clear_distance = checkpoint.clear_s - checkpoint.conflict_s;
     const double clear_time = MinimumTravelTime(
         clear_distance, entry_speed, desired_speed, max_ego_accel);
     result.clear_time = clear_time;
@@ -182,48 +166,95 @@ RoundaboutGap FindHighwayMergeGap(const RefLine& ref, const FrenetState& ego,
     result.confirmed = true;
 
     constexpr double kSearchDt = 0.1;
+    constexpr double kCollisionDt = 0.1;
     for (double entry = earliest; entry <= cfg.max_wait_time + 1e-9;
          entry += kSearchDt) {
         int front_id = -1, rear_id = -1;
         double front_gap = std::numeric_limits<double>::infinity();
         double rear_gap = std::numeric_limits<double>::infinity();
         double front_speed = 0.0, rear_speed = 0.0;
-        for (const auto& obj : lane_objects) {
-            const double s_at_entry = obj.s + obj.speed * entry;
-            if (s_at_entry >= zone.conflict_s) {
-                const double gap = s_at_entry - zone.conflict_s;
-                if (gap < front_gap) {
-                    front_gap = gap; front_id = obj.id; front_speed = obj.speed;
-                }
+        bool collision_free = true;
+        size_t relevant_count = 0;
+
+        // 현재 위치부터 conflict 진입 전 접근구간과 clear_s 이탈까지 모두 검사한다.
+        // conflict_s 이전에 차로가 이미 겹치는 Set 1에서도 selector와 최종 전체경로
+        // 검사가 동일한 점유구간을 보게 된다.
+        const double total_time = entry + clear_time;
+        for (double t = 0.0; t <= total_time + 1e-9 && collision_free;
+             t += kCollisionDt) {
+            double ego_s;
+            if (t <= entry && entry > 1e-6) {
+                const double ratio = std::min(1.0, t / entry);
+                ego_s = ego.s + ratio * (checkpoint.conflict_s - ego.s);
             } else {
-                const double gap = zone.conflict_s - s_at_entry;
-                if (gap < rear_gap) {
-                    rear_gap = gap; rear_id = obj.id; rear_speed = obj.speed;
+                const double tau = std::max(0.0, t - entry);
+                const double ratio = clear_time > 1e-6
+                    ? std::min(1.0, tau / clear_time) : 1.0;
+                ego_s = checkpoint.conflict_s +
+                    ratio * (checkpoint.clear_s - checkpoint.conflict_s);
+            }
+            const RefPoint ego_rp = Interpolate(ref, ego_s);
+            CartesianState ego_cs{ego_rp.x, ego_rp.y, ego_rp.theta, ego_rp.kappa,
+                                  desired_speed, 0.0};
+            const double margin = collision_cfg.safety_margin +
+                collision_cfg.margin_growth_rate * t;
+            const OrientedBox ego_box = MakeEgoBox(ego_cs, ego_shape, margin);
+            for (const auto& obj : obstacles) {
+                const OrientedBox obj_box = MakeObstacleBox(obj, t, 0.0);
+                if (CheckOBBOverlap(ego_box, obj_box)) {
+                    collision_free = false;
+                    break;
                 }
             }
         }
+        if (!collision_free) continue;
 
-        // 합류가 끝나는 시각의 실제 앞/뒤 간격을 기준으로 한다. 현재 snapshot의
-        // 거리만 보는 방식은 빠른 후행차가 completion 전에 따라잡는 상황을 놓친다.
-        const double front_gap_clear = front_id < 0 ? front_gap :
-            front_gap + (front_speed - desired_speed) * clear_time;
-        const double rear_gap_clear = rear_id < 0 ? rear_gap :
-            rear_gap + (desired_speed - rear_speed) * clear_time;
+        // clear 시점에는 모든 차량을 투영해 거리/TTC 여유도 검사한다. 현재
+        // 가장 가까운 두 대만 고르는 방식과 달리 빠른 원거리 후행차도 포함된다.
+        const double clear_absolute_t = entry + clear_time;
+        const double s_hint = checkpoint.clear_s;
+        for (const auto& obj : obstacles) {
+            const OrientedBox predicted = MakeObstacleBox(obj, clear_absolute_t, 0.0);
+            const double obj_s = FindClosestS(
+                ref, predicted.cx, predicted.cy, &s_hint, cfg.object_search_distance);
+            if (std::fabs(obj_s - checkpoint.clear_s) > cfg.object_search_distance) continue;
+            const RefPoint rp = Interpolate(ref, obj_s);
+            const double dx = predicted.cx - rp.x;
+            const double dy = predicted.cy - rp.y;
+            const double obj_d = -dx * std::sin(rp.theta) + dy * std::cos(rp.theta);
+            const double alignment = std::cos(predicted.heading - rp.theta);
+            if (std::fabs(obj_d) > cfg.target_corridor_half_width ||
+                alignment < cfg.min_heading_alignment) continue;
+            ++relevant_count;
+            const double longitudinal_speed = std::max(0.0, obj.speed * alignment);
+            if (obj_s >= checkpoint.clear_s) {
+                const double gap = obj_s - checkpoint.clear_s;
+                if (gap < front_gap) {
+                    front_gap = gap; front_id = obj.id; front_speed = longitudinal_speed;
+                }
+            } else {
+                const double gap = checkpoint.clear_s - obj_s;
+                if (gap < rear_gap) {
+                    rear_gap = gap; rear_id = obj.id; rear_speed = longitudinal_speed;
+                }
+            }
+        }
         const double front_closing = std::max(0.0, desired_speed - front_speed);
         const double rear_closing = std::max(0.0, rear_speed - desired_speed);
         const double front_ttc = front_closing > 1e-3
-            ? front_gap_clear / front_closing : std::numeric_limits<double>::infinity();
+            ? front_gap / front_closing : std::numeric_limits<double>::infinity();
         const double rear_ttc = rear_closing > 1e-3
-            ? rear_gap_clear / rear_closing : std::numeric_limits<double>::infinity();
-        if (front_gap_clear >= cfg.min_front_gap &&
-            rear_gap_clear >= cfg.min_rear_gap &&
+            ? rear_gap / rear_closing : std::numeric_limits<double>::infinity();
+        result.crossing_vehicle_count = std::max(result.crossing_vehicle_count,
+                                                  relevant_count);
+        if (front_gap >= cfg.min_front_gap && rear_gap >= cfg.min_rear_gap &&
             front_ttc >= cfg.min_front_ttc && rear_ttc >= cfg.min_rear_ttc) {
             result.safe = true;
             result.entry_time = entry;
             result.preceding_id = front_id;
             result.following_id = rear_id;
-            result.preceding_time = front_id < 0 ? -1.0 : front_gap_clear;
-            result.following_time = rear_id < 0 ? -1.0 : rear_gap_clear;
+            result.preceding_time = front_id < 0 ? -1.0 : front_gap;
+            result.following_time = rear_id < 0 ? -1.0 : rear_gap;
             return result;
         }
     }

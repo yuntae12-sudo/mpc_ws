@@ -28,6 +28,7 @@ planner:
     max_leader_search_s: 60.0  # [m] 이 거리 안의 선두 차량만 후보로 봄
     min_leader_speed: 0.5      # [m/s] 이 이하는 정적 장애물로 보고 FOLLOWING에서 제외
     exit_search_margin: 10.0   # [m] 진입 후 선두차량 유지용 탐색거리 hysteresis
+    leader_switch_margin: 3.0  # [m] 더 가까운 동일차선 차량으로 leader를 넘길 최소 거리차
     dropout_grace_cycles: 5    # [cycle] ObjectInfo 일시 누락 허용(20Hz 기준 0.25s)
 
   # --- AVOID (Sec.VI SAT 충돌필터 + lateral 오프셋). FSM 미연동 상태의
@@ -65,9 +66,17 @@ planner:
   highway_merge:
     enabled: true
     zones:
-      - { name: highway_merge_1, start_s: 1113.35, conflict_s: 1237.04, completion_s: 1274.73 }
-      - { name: highway_merge_2, start_s: 1424.45, conflict_s: 1524.41, completion_s: 1547.54 }
-      - { name: highway_merge_3, start_s: 1547.54, conflict_s: 1564.72, completion_s: 1583.76 }
+      - name: highway_merge_1
+        start_s: 1113.35
+        completion_s: 1274.73
+        checkpoints:
+          - { conflict_s: 1237.04, clear_s: 1274.73 }
+      - name: highway_merge_2_3
+        start_s: 1424.45
+        completion_s: 1583.76
+        checkpoints:
+          - { conflict_s: 1524.41, clear_s: 1547.54 }
+          - { conflict_s: 1564.72, clear_s: 1583.76 }
     approach_distance: 50.0 # 향후 속도 기반 start_s 사전 감지에 사용할 여유
     stop_buffer: 4.0
     target_corridor_half_width: 5.5 # 합류 전 평행한 본선 1개 차로까지 보수적으로 포함

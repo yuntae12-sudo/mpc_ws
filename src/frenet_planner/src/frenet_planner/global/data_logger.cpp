@@ -149,6 +149,7 @@ void LoadParams(const std::string& yaml_path,
     loadInto(root, "planner/following/max_leader_search_s",  following_cfg.max_leader_search_s);
     loadInto(root, "planner/following/min_leader_speed",     following_cfg.min_leader_speed);
     loadInto(root, "planner/following/exit_search_margin",   following_cfg.exit_search_margin);
+    loadInto(root, "planner/following/leader_switch_margin", following_cfg.leader_switch_margin);
     loadInto(root, "planner/following/dropout_grace_cycles", following_cfg.dropout_grace_cycles);
 
     loadInto(root, "planner/avoid/detection_distance", avoid_cfg.detection_distance);
@@ -196,8 +197,16 @@ void LoadParams(const std::string& yaml_path,
             zone.name = node["name"] ? node["name"].as<std::string>()
                                      : "highway_merge";
             zone.start_s = node["start_s"].as<double>();
-            zone.conflict_s = node["conflict_s"].as<double>();
             zone.completion_s = node["completion_s"].as<double>();
+            const YAML::Node checkpoints = node["checkpoints"];
+            if (checkpoints && checkpoints.IsSequence()) {
+                for (const auto& checkpoint_node : checkpoints) {
+                    HighwayMergeCheckpoint checkpoint;
+                    checkpoint.conflict_s = checkpoint_node["conflict_s"].as<double>();
+                    checkpoint.clear_s = checkpoint_node["clear_s"].as<double>();
+                    zone.checkpoints.push_back(checkpoint);
+                }
+            }
             highway_merge_cfg.zones.push_back(zone);
         }
     }

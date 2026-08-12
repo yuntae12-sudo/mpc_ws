@@ -37,6 +37,7 @@ struct FollowingConfig {
     double max_leader_search_s = 60.0;  // [m] 이 거리 안의 선두 차량만 후보로 봄
     double min_leader_speed = 0.5;      // [m/s] 이보다 느리면 정적 장애물로 보고 FOLLOWING에서 제외
     double exit_search_margin = 10.0;   // [m] 진입 후 탐색거리 hysteresis
+    double leader_switch_margin = 3.0;  // [m] 새 차량이 이만큼 더 가까울 때만 leader 인계
     int dropout_grace_cycles = 5;       // [cycle] ObjectInfo 일시 누락 허용(20Hz)
 };
 
@@ -82,11 +83,16 @@ struct MergeConfig {
 // 고주로/본선 합류 구간. Global Path가 이미 램프에서 본선으로 이어지는 형상을
 // 가지므로 횡경로는 d=0을 유지하고, 본선 corridor의 선행/후행 차량 사이 시간·
 // 거리 gap에 맞춰 종방향 진입 시점만 결정한다.
+struct HighwayMergeCheckpoint {
+    double conflict_s = -1.0;           // [m] 충돌 가능 구간 진입점
+    double clear_s = -1.0;              // [m] 해당 충돌 구간 이탈점
+};
+
 struct HighwayMergeZone {
     std::string name;
     double start_s = -1.0;              // [m] 합류 정책 활성 시작점
-    double conflict_s = -1.0;           // [m] 본선 차로와 실질적으로 겹치기 시작하는 점
     double completion_s = -1.0;         // [m] 본선 중앙 정렬이 끝나는 점
+    std::vector<HighwayMergeCheckpoint> checkpoints;
 };
 
 struct HighwayMergeConfig {

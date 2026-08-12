@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 #include "frenet_planner/frenet/ref_line.hpp"
+#include "frenet_planner/frenet/collision_checker.hpp"
 #include "frenet_planner/global/data_logger.hpp"
 #include "frenet_planner/global/global.hpp"
 
@@ -34,7 +35,9 @@ RoundaboutGap FindRoundaboutGap(const RefLine& ref, const FrenetState& ego,
 RoundaboutGap FindHighwayMergeGap(const RefLine& ref, const FrenetState& ego,
                                   const std::vector<ObjectInfo>& obstacles,
                                   const HighwayMergeConfig& cfg,
-                                  const HighwayMergeZone& zone,
+                                  const HighwayMergeCheckpoint& checkpoint,
+                                  const VehicleShape& ego_shape,
+                                  const CollisionCheckConfig& collision_cfg,
                                   double desired_speed, double max_ego_accel);
 
 #endif

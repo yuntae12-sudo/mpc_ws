@@ -15,6 +15,14 @@ const HighwayMergeZone* HighwayZoneAt(const HighwayMergeConfig& cfg, int index) 
     return &cfg.zones[static_cast<size_t>(index)];
 }
 
+const HighwayMergeCheckpoint* HighwayCheckpointAt(
+        const HighwayMergeConfig& cfg, int zone_index, int checkpoint_index) {
+    const HighwayMergeZone* zone = HighwayZoneAt(cfg, zone_index);
+    if (!zone || checkpoint_index < 0 ||
+        static_cast<size_t>(checkpoint_index) >= zone->checkpoints.size()) return nullptr;
+    return &zone->checkpoints[static_cast<size_t>(checkpoint_index)];
+}
+
 int FindHighwayMergeZone(const HighwayMergeConfig& cfg, double s) {
     if (!cfg.enabled) return -1;
     for (size_t i = 0; i < cfg.zones.size(); ++i) {
@@ -134,14 +142,25 @@ void ExtendMergePathThroughConflict(CartesianPath& path, const RefLine& ref,
     }
 }
 
-CartesianPath RemainingPath(const CartesianPath& path, double elapsed, double dt) {
+CartesianPath RemainingPath(const CartesianPath& path, double ego_x, double ego_y,
+                            size_t& progress_index) {
     CartesianPath result;
     if (path.x.empty()) return result;
     const size_t count = std::min({path.x.size(), path.y.size(), path.yaw.size(),
                                    path.kappa.size(), path.v.size(), path.a.size()});
-    const size_t first = std::min(
-        static_cast<size_t>(std::max(0.0, std::floor(elapsed / std::max(dt, 1e-3)))),
-        count - 1);
+    const size_t search_begin = std::min(progress_index, count - 1);
+    size_t first = search_begin;
+    double best_dist2 = std::numeric_limits<double>::infinity();
+    for (size_t i = search_begin; i < count; ++i) {
+        const double dx = path.x[i] - ego_x;
+        const double dy = path.y[i] - ego_y;
+        const double dist2 = dx * dx + dy * dy;
+        if (dist2 < best_dist2) {
+            best_dist2 = dist2;
+            first = i;
+        }
+    }
+    progress_index = first;
     result.x.assign(path.x.begin() + first, path.x.begin() + count);
     result.y.assign(path.y.begin() + first, path.y.begin() + count);
     result.yaw.assign(path.yaw.begin() + first, path.yaw.begin() + count);
@@ -242,18 +261,30 @@ bool FrenetPlanner::Init(const std::string& yaml_path) {
                     "completion_s, then set planner.highway_merge.enabled=true\n");
     } else {
         for (const auto& zone : highway_merge_cfg_.zones) {
-            if (zone.start_s < 0.0 || zone.conflict_s <= zone.start_s ||
-                zone.completion_s <= zone.conflict_s) {
+            bool valid_zone = zone.start_s >= 0.0 && !zone.checkpoints.empty();
+            double previous_clear_s = zone.start_s;
+            for (const auto& checkpoint : zone.checkpoints) {
+                valid_zone = valid_zone && checkpoint.conflict_s > previous_clear_s &&
+                    checkpoint.clear_s > checkpoint.conflict_s;
+                previous_clear_s = checkpoint.clear_s;
+            }
+            valid_zone = valid_zone && zone.completion_s >= previous_clear_s;
+            if (!valid_zone) {
                 std::printf("[FrenetPlanner] Highway MERGE zone '%s' invalid s ordering; "
                             "policy disabled\n", zone.name.c_str());
                 highway_merge_cfg_.enabled = false;
                 break;
             }
-            const RefPoint conflict = Interpolate(ref_, zone.conflict_s);
-            std::printf("[FrenetPlanner] Highway MERGE '%s': start=%.2f conflict=%.2f "
-                        "complete=%.2f conflict_pos=(%.2f, %.2f)\n",
-                        zone.name.c_str(), zone.start_s, zone.conflict_s,
-                        zone.completion_s, conflict.x, conflict.y);
+            std::printf("[FrenetPlanner] Highway MERGE '%s': start=%.2f complete=%.2f "
+                        "checkpoints=%zu\n", zone.name.c_str(), zone.start_s,
+                        zone.completion_s, zone.checkpoints.size());
+            for (size_t i = 0; i < zone.checkpoints.size(); ++i) {
+                const auto& checkpoint = zone.checkpoints[i];
+                const RefPoint conflict = Interpolate(ref_, checkpoint.conflict_s);
+                std::printf("  checkpoint[%zu]: conflict=%.2f clear=%.2f pos=(%.2f, %.2f)\n",
+                            i, checkpoint.conflict_s, checkpoint.clear_s,
+                            conflict.x, conflict.y);
+            }
         }
     }
     ref_loaded_ = true;
@@ -368,8 +399,11 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
     constexpr double kLowSpeedFallbackV = 0.5;  // [m/s]
     const HighwayMergeZone* context_highway_zone = HighwayZoneAt(
         highway_merge_cfg_, merge_.highway_zone_index);
+    const HighwayMergeCheckpoint* context_highway_checkpoint = HighwayCheckpointAt(
+        highway_merge_cfg_, merge_.highway_zone_index, merge_.highway_conflict_index);
     const double context_conflict_s = merge_.type == MergeType::HIGHWAY
-        && context_highway_zone ? context_highway_zone->conflict_s : merge_cfg_.conflict_s;
+        && context_highway_checkpoint
+            ? context_highway_checkpoint->conflict_s : merge_cfg_.conflict_s;
     const double context_stop_buffer = merge_.type == MergeType::HIGHWAY
         ? highway_merge_cfg_.stop_buffer : merge_cfg_.stop_buffer;
     const double low_speed_conflict_gap = merge_cfg_.conflict_s - s;
@@ -385,11 +419,33 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
     // 정지선 전에는 WAIT로 취소하고, 정지선 이후에는 비상정지를 요청한다.
     if (merge_.active && merge_.gap_locked && merge_.phase == MergePhase::COMMIT) {
         if (s >= context_conflict_s) {
-            merge_.phase = MergePhase::CROSS;
-            merge_.locked_path = CartesianPath{};
+            const HighwayMergeCheckpoint* next_checkpoint =
+                merge_.type == MergeType::HIGHWAY
+                    ? HighwayCheckpointAt(highway_merge_cfg_, merge_.highway_zone_index,
+                                          merge_.highway_conflict_index + 1)
+                    : nullptr;
+            if (next_checkpoint) {
+                ++merge_.highway_conflict_index;
+                merge_.gap_locked = false;
+                merge_.commit_pending = false;
+                merge_.gap_safe = false;
+                merge_.safe_cycles = 0;
+                merge_.phase = MergePhase::APPROACH;
+                merge_.locked_path = CartesianPath{};
+                merge_.locked_elapsed = 0.0;
+                merge_.locked_path_index = 0;
+                std::printf("[FrenetPlanner-MERGE] highway checkpoint advanced: "
+                            "zone=%s index=%d next_conflict=%.2f s=%.2f\n",
+                            context_highway_zone ? context_highway_zone->name.c_str() : "-",
+                            merge_.highway_conflict_index,
+                            next_checkpoint->conflict_s, s);
+            } else {
+                merge_.phase = MergePhase::CROSS;
+                merge_.locked_path = CartesianPath{};
+            }
         } else if (!merge_.locked_path.x.empty()) {
             CartesianPath remaining = RemainingPath(
-                merge_.locked_path, merge_.locked_elapsed, path_cfg_.dt);
+                merge_.locked_path, ego.x, ego.y, merge_.locked_path_index);
             int blocking_id = -1;
             const bool clear = CartesianTrajectoryClear(
                 remaining, predicted_obstacles, vehicle_shape_, collision_cfg_,
@@ -405,6 +461,7 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
                     merge_.phase = MergePhase::WAIT;
                     merge_.locked_path = CartesianPath{};
                     merge_.locked_elapsed = 0.0;
+                    merge_.locked_path_index = 0;
                 } else {
                     std::printf("[FrenetPlanner-MERGE] EMERGENCY: locked trajectory blocked "
                                 "after yield by object_id=%d\n", blocking_id);
@@ -413,12 +470,11 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
                 }
             } else if (remaining.x.size() >= 2) {
                 out_path = std::move(remaining);
-                merge_.locked_elapsed += 1.0 / 20.0;
                 static int locked_log_tick = 0;
                 if (++locked_log_tick % 5 == 0) {
                     std::printf("[FrenetPlanner-STATE] mode=MERGE phase=COMMIT_LOCKED "
-                                "s=%.2f d=%.3f speed=%.2f elapsed=%.2f remaining=%zu\n",
-                                s, d, ego.v, merge_.locked_elapsed, out_path.x.size());
+                                "s=%.2f d=%.3f speed=%.2f progress=%zu remaining=%zu\n",
+                                s, d, ego.v, merge_.locked_path_index, out_path.x.size());
                 }
                 return true;
             } else {
@@ -628,9 +684,32 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
         }
     }
 
-    if (!following_.active) {
-        LeaderTarget leader;
-        if (FindLeader(ref_, start, obstacles, lane_width_, effective_following_cfg, leader)) {
+    // 유지 중인 ID만 보는 것으로 끝내면 합류 직후 실제로 더 가까워진 본선 차량을
+    // 놓칠 수 있다. 매 cycle 동일차선 최인접 차량도 찾되, 작은 투영 흔들림으로
+    // ID가 왕복하지 않도록 거리 hysteresis를 만족할 때만 인계한다.
+    LeaderTarget nearest_leader;
+    const bool nearest_found = FindLeader(
+        ref_, start, obstacles, lane_width_, effective_following_cfg, nearest_leader);
+    if (following_.active && nearest_found &&
+        nearest_leader.id != following_.leader_id) {
+        const double current_gap = following_.leader_s - s;
+        const double nearest_gap = nearest_leader.s - s;
+        if (nearest_gap + following_cfg_.leader_switch_margin < current_gap) {
+            const int old_id = following_.leader_id;
+            following_.leader_id = nearest_leader.id;
+            following_.leader_s = nearest_leader.s;
+            following_.leader_d = nearest_leader.d;
+            following_.leader_speed = nearest_leader.speed;
+            following_.leader_accel = nearest_leader.accel;
+            following_.missing_cycles = 0;
+            std::printf("[FrenetPlanner] leader handoff: old=%d new=%d "
+                        "old_gap=%.2f new_gap=%.2f\n",
+                        old_id, nearest_leader.id, current_gap, nearest_gap);
+        }
+    }
+
+    if (!following_.active && nearest_found) {
+            const LeaderTarget& leader = nearest_leader;
             following_.active = true;
             following_.leader_id = leader.id;
             following_.leader_s = leader.s;
@@ -642,7 +721,6 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
                         "effective_search=%.2f\n",
                         leader.id, leader.s - s, leader.speed,
                         effective_following_cfg.max_leader_search_s);
-        }
     }
 
     // 두 MERGE 모두 Global Path(d=0)를 그대로 따른다. 회전교차로는 conflict
@@ -689,13 +767,15 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
         const bool highway = merge_.type == MergeType::HIGHWAY;
         const HighwayMergeZone* active_highway_zone = HighwayZoneAt(
             highway_merge_cfg_, merge_.highway_zone_index);
-        if (highway && !active_highway_zone) {
+        const HighwayMergeCheckpoint* active_highway_checkpoint = HighwayCheckpointAt(
+            highway_merge_cfg_, merge_.highway_zone_index, merge_.highway_conflict_index);
+        if (highway && !active_highway_checkpoint) {
             std::printf("[FrenetPlanner-MERGE] active highway zone missing; reset\n");
             merge_ = MergeContext{};
             return false;
         }
         const double active_conflict_s = highway
-            ? active_highway_zone->conflict_s : merge_cfg_.conflict_s;
+            ? active_highway_checkpoint->conflict_s : merge_cfg_.conflict_s;
         const double conflict_gap = active_conflict_s - s;
         const double active_commit_distance = highway
             ? highway_merge_cfg_.commit_distance : merge_cfg_.commit_distance;
@@ -714,13 +794,39 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
             merge_.gap_safe = true;
             // stop_s는 WAIT 정지 위치이지 CROSS 시작점이 아니다. 대표 충돌점에
             // 실제로 도달한 뒤부터 교차구역 통과 단계로 전환한다.
-            if (s >= active_conflict_s)
-                merge_.phase = MergePhase::CROSS;
+            if (s >= active_conflict_s) {
+                const HighwayMergeCheckpoint* next_checkpoint = highway
+                    ? HighwayCheckpointAt(highway_merge_cfg_, merge_.highway_zone_index,
+                                          merge_.highway_conflict_index + 1)
+                    : nullptr;
+                if (next_checkpoint) {
+                    ++merge_.highway_conflict_index;
+                    merge_.gap_locked = false;
+                    merge_.gap_safe = false;
+                    merge_.safe_cycles = 0;
+                    merge_.phase = MergePhase::APPROACH;
+                    merge_.locked_path = CartesianPath{};
+                    merge_.locked_elapsed = 0.0;
+                    merge_.locked_path_index = 0;
+                    merge_.preceding_id = -1;
+                    merge_.following_id = -1;
+                    merge_.preceding_time = -1.0;
+                    merge_.following_time = -1.0;
+                    std::printf("[FrenetPlanner-MERGE] highway checkpoint advanced: "
+                                "zone=%s index=%d next_conflict=%.2f s=%.2f\n",
+                                active_highway_zone ? active_highway_zone->name.c_str() : "-",
+                                merge_.highway_conflict_index,
+                                next_checkpoint->conflict_s, s);
+                } else {
+                    merge_.phase = MergePhase::CROSS;
+                }
+            }
         } else {
             const RoundaboutGap gap = highway
                 ? FindHighwayMergeGap(
                     ref_, start, predicted_obstacles, highway_merge_cfg_,
-                    *active_highway_zone,
+                    *active_highway_checkpoint,
+                    vehicle_shape_, collision_cfg_,
                     std::max(active_cross_speed, ego.v),
                     limits_.max_longitudinal_accel)
                 : FindRoundaboutGap(
@@ -772,8 +878,11 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
         const bool highway = merge_.type == MergeType::HIGHWAY;
         const HighwayMergeZone* active_highway_zone = HighwayZoneAt(
             highway_merge_cfg_, merge_.highway_zone_index);
+        const HighwayMergeCheckpoint* active_highway_checkpoint = HighwayCheckpointAt(
+            highway_merge_cfg_, merge_.highway_zone_index, merge_.highway_conflict_index);
         const double active_conflict_s = highway
-            && active_highway_zone ? active_highway_zone->conflict_s : merge_cfg_.conflict_s;
+            && active_highway_checkpoint
+                ? active_highway_checkpoint->conflict_s : merge_cfg_.conflict_s;
         const double active_stop_buffer = highway
             ? highway_merge_cfg_.stop_buffer : merge_cfg_.stop_buffer;
         cmd.mode = MERGE;
@@ -788,6 +897,19 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
         cmd.merge_committed = merge_.gap_locked || merge_.commit_pending;
         cmd.merge_crossing = merge_.phase == MergePhase::CROSS;
         cmd.merge_type = merge_.type;
+        // 합류 후 같은 corridor에 들어온 선행차는 일반 장애물이 아니라
+        // FOLLOWING과 동일한 종방향 gap 제어 대상으로 전달한다.
+        if (nearest_found) {
+            cmd.leader_id = nearest_leader.id;
+            cmd.leader_s = nearest_leader.s;
+            cmd.leader_speed = nearest_leader.speed;
+            cmd.leader_accel = nearest_leader.accel;
+            cmd.time_gap = following_cfg_.time_gap;
+            cmd.min_gap = following_cfg_.min_gap;
+            cmd.gap_gain = following_cfg_.gap_gain;
+        } else {
+            cmd.leader_id = -1;
+        }
     } else if (following_.active) {
         leader_s = following_.leader_s;
         leader_speed = following_.leader_speed;
@@ -954,11 +1076,11 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
 
     const double active_merge_conflict_gap = cmd.mode == MERGE
         ? cmd.merge_conflict_s - s : 0.0;
-    const HighwayMergeZone* output_highway_zone = HighwayZoneAt(
-        highway_merge_cfg_, merge_.highway_zone_index);
+    const HighwayMergeCheckpoint* output_highway_checkpoint = HighwayCheckpointAt(
+        highway_merge_cfg_, merge_.highway_zone_index, merge_.highway_conflict_index);
     const double active_merge_completion_distance =
-        merge_.type == MergeType::HIGHWAY && output_highway_zone
-            ? output_highway_zone->completion_s - output_highway_zone->conflict_s
+        merge_.type == MergeType::HIGHWAY && output_highway_checkpoint
+            ? output_highway_checkpoint->clear_s - output_highway_checkpoint->conflict_s
             : merge_cfg_.completion_distance;
     const double active_merge_cross_speed = merge_.type == MergeType::HIGHWAY
         ? highway_merge_cfg_.cross_speed_floor : merge_cfg_.cross_speed_floor;
@@ -1011,10 +1133,12 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
                 full, ref_, cmd.merge_conflict_s, active_merge_completion_distance,
                 candidate.s.empty() ? cmd.merge_conflict_s : candidate.s.back(),
                 std::max(cmd.target_speed, active_merge_cross_speed), path_cfg_.dt);
+            int blocking_id = -1;
             if (!CartesianTrajectoryClear(full, predicted_obstacles, vehicle_shape_,
-                                          collision_cfg_, path_cfg_.dt)) {
+                                          collision_cfg_, path_cfg_.dt, &blocking_id)) {
                 candidate.valid = false;
                 candidate.rejection_reason = RejectionReason::COLLISION;
+                candidate.collision_object_id = blocking_id;
             }
         }
         stats.combined_valid_after_collision = 0;
@@ -1075,6 +1199,63 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
                      stats.longitudinal_valid, stats.longitudinal_total,
                      stats.combined_total, stats.combined_valid_after_curvature,
                      stats.combined_valid_after_collision);
+        if (stats.combined_valid_after_curvature > 0 &&
+            stats.combined_valid_after_collision == 0) {
+            std::unordered_map<int, int> blocker_counts;
+            std::unordered_map<int, double> blocker_first_times;
+            for (const auto& candidate : candidates) {
+                if (candidate.rejection_reason != RejectionReason::COLLISION ||
+                    candidate.collision_object_id < 0) continue;
+                const int blocker_id = candidate.collision_object_id;
+                ++blocker_counts[blocker_id];
+                double collision_t = -1.0;
+                if (candidate.collision_sample_index >= 0 &&
+                    static_cast<size_t>(candidate.collision_sample_index) < candidate.t.size()) {
+                    collision_t = candidate.t[static_cast<size_t>(candidate.collision_sample_index)];
+                }
+                auto time_it = blocker_first_times.find(blocker_id);
+                if (collision_t >= 0.0 &&
+                    (time_it == blocker_first_times.end() || collision_t < time_it->second))
+                    blocker_first_times[blocker_id] = collision_t;
+            }
+            std::vector<std::pair<int, int>> ranked_blockers(
+                blocker_counts.begin(), blocker_counts.end());
+            std::sort(ranked_blockers.begin(), ranked_blockers.end(),
+                      [](const auto& lhs, const auto& rhs) {
+                          return lhs.second > rhs.second;
+                      });
+            const size_t report_count = std::min<size_t>(3, ranked_blockers.size());
+            for (size_t rank = 0; rank < report_count; ++rank) {
+                const int blocker_id = ranked_blockers[rank].first;
+                const int blocked_paths = ranked_blockers[rank].second;
+                const auto obj_it = std::find_if(
+                    predicted_obstacles.begin(), predicted_obstacles.end(),
+                    [blocker_id](const ObjectInfo& obj) { return obj.id == blocker_id; });
+                if (obj_it == predicted_obstacles.end()) {
+                    std::printf("[FrenetPlanner-COLLISION] rank=%zu blocking_id=%d "
+                                "paths=%d object=missing leader_id=%d\n",
+                                rank + 1, blocker_id, blocked_paths,
+                                following_.active ? following_.leader_id : -1);
+                    continue;
+                }
+                double obj_s, obj_d, obj_s_dot;
+                ProjectObjectToFrenet(ref_, *obj_it, obj_s, obj_d, obj_s_dot);
+                double obj_gap = obj_s - s;
+                const double track_length = ref_.points.empty() ? 0.0 : ref_.points.back().s;
+                if (obj_gap <= 0.0 && track_length > 0.0) obj_gap += track_length;
+                const auto time_it = blocker_first_times.find(blocker_id);
+                const double first_t = time_it == blocker_first_times.end()
+                    ? -1.0 : time_it->second;
+                std::printf("[FrenetPlanner-COLLISION] rank=%zu blocking_id=%d paths=%d "
+                            "first_t=%.2f obj_s=%.2f obj_d=%.2f gap=%.2f speed_s=%.2f "
+                            "same_lane=%d leader_id=%d leader_match=%d\n",
+                            rank + 1, blocker_id, blocked_paths, first_t,
+                            obj_s, obj_d, obj_gap, obj_s_dot,
+                            std::fabs(obj_d) <= lane_width_ * 0.5 ? 1 : 0,
+                            following_.active ? following_.leader_id : -1,
+                            following_.active && following_.leader_id == blocker_id ? 1 : 0);
+            }
+        }
         return false;
     }
 
@@ -1091,6 +1272,7 @@ bool FrenetPlanner::Plan(const CartesianState& ego, const std::vector<ObjectInfo
         merge_.phase = MergePhase::COMMIT;
         merge_.locked_path = selected_cartesian;
         merge_.locked_elapsed = 0.0;
+        merge_.locked_path_index = 0;
         std::printf("[FrenetPlanner-MERGE] gap committed after trajectory validation: "
                     "front=%d(%.2fs) rear=%d(%.2fs) entry=%.2fs s=%.2f samples=%zu\n",
                     merge_.preceding_id, merge_.preceding_time,

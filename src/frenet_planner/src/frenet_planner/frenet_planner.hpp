@@ -87,6 +87,7 @@ private:
         bool active = false;
         MergeType type = MergeType::NONE;
         int highway_zone_index = -1;
+        int highway_conflict_index = 0;
         MergePhase phase = MergePhase::APPROACH;
         bool gap_safe = false;
         bool gap_locked = false;
@@ -101,6 +102,7 @@ private:
         size_t crossing_vehicle_count = 0;
         CartesianPath locked_path;
         double locked_elapsed = 0.0;
+        size_t locked_path_index = 0;  // wall-clock이 아니라 Ego의 실제 공간 진행 위치
     };
 
     struct ObjectTrack {

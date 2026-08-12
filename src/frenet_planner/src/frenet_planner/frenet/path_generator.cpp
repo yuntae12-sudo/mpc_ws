@@ -516,8 +516,14 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
 
         case MERGE:
             if (cmd.merge_crossing) {
-                longitudinal_set = GenerateVelocityKeepingCandidates(
-                    start, cmd.target_speed, cfg);
+                if (cmd.leader_id >= 0) {
+                    longitudinal_set = GenerateFollowingCandidates(
+                        start, cmd.leader_s, cmd.leader_speed, cmd.leader_accel,
+                        cmd.time_gap, cmd.min_gap, cmd.target_speed, cmd.gap_gain, cfg);
+                } else {
+                    longitudinal_set = GenerateVelocityKeepingCandidates(
+                        start, cmd.target_speed, cfg);
+                }
             } else if (!cmd.merge_gap_safe) {
                 const double stop_distance = std::max(0.0, cmd.merge_stop_s - start.s);
                 const double braking_distance = start.s_d * start.s_d /
@@ -550,8 +556,16 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
                     longitudinal_set = GenerateVelocityKeepingCandidates(
                         start, cmd.target_speed, cfg);
                 } else {
-                    longitudinal_set = GenerateVelocityKeepingCandidates(
-                        start, std::min(cmd.target_speed, std::max(arrival_speed, 1.0)), cfg);
+                    if (cmd.leader_id >= 0) {
+                        longitudinal_set = GenerateFollowingCandidates(
+                            start, cmd.leader_s, cmd.leader_speed, cmd.leader_accel,
+                            cmd.time_gap, cmd.min_gap,
+                            std::min(cmd.target_speed, std::max(arrival_speed, 1.0)),
+                            cmd.gap_gain, cfg);
+                    } else {
+                        longitudinal_set = GenerateVelocityKeepingCandidates(
+                            start, std::min(cmd.target_speed, std::max(arrival_speed, 1.0)), cfg);
+                    }
                 }
             }
             break;
@@ -590,7 +604,8 @@ std::vector<FrenetPath> ResolveManeuver(const FrenetState& start,
     // 간격이 충분히 넓다면 문제없겠지만, 좁은 gap으로 MERGE 검증 시 후보가
     // 0개로 걸러지면 이 지점부터 확인.
     if (!obstacles.empty()) {
-        const int coast_exempt_id = (cmd.mode == FOLLOWING) ? cmd.leader_id : -1;
+        const int coast_exempt_id =
+            (cmd.mode == FOLLOWING || cmd.mode == MERGE) ? cmd.leader_id : -1;
         FilterByCollision(combined, ref, obstacles, vehicle_shape, collision_cfg,
                           coast_exempt_id);
     }
